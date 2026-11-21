@@ -1202,6 +1202,14 @@ void ScriptFunction::ReadHWS(fstream& f, unsigned int length, SteamLanguage lang
 			if (haslang & (1 << lang))
 				for (i = 0; i < indicecount; i++)
 					HWSReadFlexibleChar(f, indices[lang][i], true);
+		// Older single-language edits could leave a longer route for another
+		// language. The writer then read beyond the one-element return route.
+		// A sole return has no executable tail: recover only this exact case.
+		if (op.size() == 1 && op[0].opcode == 0x04) {
+			for (SteamLanguage routeLang = 0; routeLang < STEAM_LANGUAGE_AMOUNT; ++routeLang)
+				if (!indices[routeLang].empty() && indices[routeLang][0] == 0)
+					indices[routeLang].resize(1);
+		}
 		if (hades::STEAM_SINGLE_LANGUAGE_MODE) {
 			if ((haslang & (1 << GetSteamLanguage())) == 0) {
 				for (lang = 0; lang < STEAM_LANGUAGE_AMOUNT; lang++)
@@ -1243,7 +1251,7 @@ void ScriptFunction::WriteHWS(fstream& f) {
 	for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; lang++) {
 		if (!indices[lang].empty()) {
 			haslang |= 1 << lang;
-			indicecount = indices[lang].size();
+			indicecount = max(indicecount, static_cast<uint32_t>(indices[lang].size()));
 		}
 	}
 	HWSWriteChar(f, haslang);
@@ -1255,7 +1263,7 @@ void ScriptFunction::WriteHWS(fstream& f) {
 	for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; lang++)
 		if (haslang & (1 << lang))
 			for (i = 0; i < indicecount; i++)
-				HWSWriteFlexibleChar(f, indices[lang][i], true);
+				HWSWriteFlexibleChar(f, i < indices[lang].size() ? indices[lang][i] : -1, true);
 }
 
 void ScriptFunction::WriteSteam(fstream& f, SteamLanguage lang) {

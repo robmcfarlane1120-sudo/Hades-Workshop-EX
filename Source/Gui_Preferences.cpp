@@ -1,12 +1,15 @@
 #include "Gui_Preferences.h"
 
 #include <wx/tokenzr.h>
+#include <wx/stdpaths.h>
 #include "Hades_Strings.h"
 #include "Database_Text.h"
 #include "Tool_Randomizer.h"
 #include "Tool_DamageCalculator.h"
 
-#define PREFERENCE_FILE_NAME "HadesWorkshop.conf"
+static wxString PreferenceFilePath() {
+	return wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPathWithSep() + "HadesWorkshop.conf";
+}
 #define UNKNOWN_CHAR L'?'
 
 wxArrayString TmpArgs;
@@ -68,7 +71,7 @@ int PreferencesDialog::ShowModal(bool allowsteamlangchange, bool enablesinglemod
 }
 
 bool PreferencesDialog::GetBeforeAndAfterSection(wxString section, wxString& before, wxString& after) {
-	wxFile configfilein(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfilein(PreferenceFilePath(), wxFile::read);
 	if (!configfilein.IsOpened())
 		return false;
 	wxString configstring;
@@ -108,7 +111,7 @@ bool PreferencesDialog::GetBeforeAndAfterSection(wxString section, wxString& bef
 }
 
 bool GetBeforeAndAfterSectionField(wxString section, wxString field, wxString& before, wxString& after) {
-	wxFile configfilein(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfilein(PreferenceFilePath(), wxFile::read);
 	if (!configfilein.IsOpened())
 		return false;
 	wxString configstring;
@@ -182,7 +185,7 @@ bool PreferencesDialog::SavePreferences() {
 	wxString before, after, comma = _(L"");
 	if (!GetBeforeAndAfterSection(_(L"[Preferences]"), before, after))
 		return false;
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	configfileout.Write(before);
 	configfileout.Write(_(L"[Preferences]"));
 	configfileout.Write(_(L"\nCharmap=") + CharmapNames[m_gamealphabet->GetSelection()]);
@@ -205,12 +208,12 @@ bool PreferencesDialog::SavePreferences() {
 }
 
 bool PreferencesDialog::ReadConfiguration() {
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened()) {
-		configfile.Open(_(PREFERENCE_FILE_NAME), wxFile::write);
+		configfile.Open(PreferenceFilePath(), wxFile::write);
 		if (configfile.IsOpened())
 			configfile.Close();
-		configfile.Open(_(PREFERENCE_FILE_NAME), wxFile::read);
+		configfile.Open(PreferenceFilePath(), wxFile::read);
 		if (!configfile.IsOpened())
 			return false;
 	}
@@ -313,7 +316,7 @@ bool PreferencesDialog::SaveMainFrameConfig(MainFrameBase* configwindow) {
 	wxString before, after;
 	if (!GetBeforeAndAfterSection(_(L"[Options]"), before, after))
 		return false;
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	wxString comma = _(L"");
 	configfileout.Write(before);
 	configfileout.Write(_(L"[Options]"));
@@ -344,7 +347,7 @@ bool PreferencesDialog::SaveMainFrameConfig(MainFrameBase* configwindow) {
 }
 
 bool PreferencesDialog::LoadMainFrameConfig(MainFrameBase* configwindow) {
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfield;
@@ -401,7 +404,7 @@ bool PreferencesDialog::SaveToolUnityConfig(UnityViewerWindow* configwindow) {
 	wxString before, after;
 	if (!GetBeforeAndAfterSection(_(L"[UnityViewer]"), before, after))
 		return false;
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	wxString comma = _(L"");
 	wxString token;
 	configfileout.Write(before);
@@ -457,7 +460,7 @@ bool PreferencesDialog::SaveToolUnityConfig(UnityViewerWindow* configwindow) {
 }
 
 bool PreferencesDialog::LoadToolUnityConfig(UnityViewerWindow* configwindow) {
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfield;
@@ -548,7 +551,7 @@ bool PreferencesDialog::SaveToolBackgroundConfig(BackgroundEditorWindow* configw
 	wxString before, after;
 	if (!GetBeforeAndAfterSection(_(L"[BackgroundEditor]"), before, after))
 		return false;
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	configfileout.Write(before);
 	configfileout.Write(_(L"[BackgroundEditor]"));
 	if (configwindow->m_exportdir->GetPath()!=configwindow->m_massexportdir->GetPath() || configwindow->m_exportdir->GetPath()!=configwindow->m_importdir->GetPath()) {
@@ -596,7 +599,7 @@ bool PreferencesDialog::SaveToolBackgroundConfig(BackgroundEditorWindow* configw
 }
 
 bool PreferencesDialog::LoadToolBackgroundConfig(BackgroundEditorWindow* configwindow) {
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfield;
@@ -684,7 +687,7 @@ bool PreferencesDialog::SaveToolRandomizerConfig(RandomizerWindow* configwindowu
 	wxString before, after;
 	if (!GetBeforeAndAfterSection(_(L"[Randomizer]"), before, after))
 		return false;
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	unsigned int i;
 	wxString line;
 	configfileout.Write(before);
@@ -762,7 +765,7 @@ bool PreferencesDialog::SaveToolRandomizerConfig(RandomizerWindow* configwindowu
 
 bool PreferencesDialog::LoadToolRandomizerConfig(RandomizerWindow* configwindowuncast) {
 	ToolRandomizer* configwindow = static_cast<ToolRandomizer*>(configwindowuncast);
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfield;
@@ -911,7 +914,7 @@ bool PreferencesDialog::LoadToolRandomizerConfig(RandomizerWindow* configwindowu
 bool PreferencesDialog::SaveToolCalculatorProfile(DamageCalculatorWindow* configwindowuncast, wxString profileid, wxString profilename) {
 	ToolDamageCalculator* configwindow = static_cast<ToolDamageCalculator*>(configwindowuncast);
 	wxString before, after;
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfile;
@@ -926,7 +929,7 @@ bool PreferencesDialog::SaveToolCalculatorProfile(DamageCalculatorWindow* config
 		before = cfgfile + _(L"\n\n[Calculator]\n");
 		after = _(L"\n");
 	}
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	wxString line;
 	int pchar, i;
 	configfileout.Write(before);
@@ -979,7 +982,7 @@ bool PreferencesDialog::SaveToolCalculatorProfile(DamageCalculatorWindow* config
 bool PreferencesDialog::DeleteToolCalculatorProfile(DamageCalculatorWindow* configwindowuncast, wxString profileid) {
 	ToolDamageCalculator* configwindow = static_cast<ToolDamageCalculator*>(configwindowuncast);
 	wxString before, after;
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfile;
@@ -994,7 +997,7 @@ bool PreferencesDialog::DeleteToolCalculatorProfile(DamageCalculatorWindow* conf
 		before = cfgfile + _(L"\n\n[Calculator]\n");
 		after = _(L"\n");
 	}
-	wxFile configfileout(_(PREFERENCE_FILE_NAME), wxFile::write);
+	wxFile configfileout(PreferenceFilePath(), wxFile::write);
 	configfileout.Write(before);
 	configfileout.Write(after);
 	configfileout.Close();
@@ -1003,7 +1006,7 @@ bool PreferencesDialog::DeleteToolCalculatorProfile(DamageCalculatorWindow* conf
 
 bool PreferencesDialog::LoadToolCalculatorProfile(DamageCalculatorWindow* configwindowuncast, wxString profileid) {
 	ToolDamageCalculator* configwindow = static_cast<ToolDamageCalculator*>(configwindowuncast);
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfield;
@@ -1081,7 +1084,7 @@ bool PreferencesDialog::LoadToolCalculatorProfile(DamageCalculatorWindow* config
 }
 
 bool PreferencesDialog::GetToolCalculatorProfileList(wxArrayString* id, wxArrayString* name) {
-	wxFile configfile(_(PREFERENCE_FILE_NAME), wxFile::read);
+	wxFile configfile(PreferenceFilePath(), wxFile::read);
 	if (!configfile.IsOpened())
 		return false;
 	wxString cfgstr, cfgfield;
@@ -1110,7 +1113,7 @@ bool PreferencesDialog::GetToolCalculatorProfileList(wxArrayString* id, wxArrayS
 bool PreferencesDialog::ReadCharmaps() {
 	if (m_gamealphabet->GetSelection()>0) {
 		wxString chmapselectedstr = m_gamealphabet->GetStringSelection();
-		wxFile configfile(_(PREFERENCE_FILE_NAME),wxFile::read);
+		wxFile configfile(PreferenceFilePath(),wxFile::read);
 		if (!configfile.IsOpened()) {
 			m_gamealphabet->SetSelection(0);
 			return false;

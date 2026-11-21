@@ -1311,6 +1311,9 @@ bool EnemyDataSet::GenerateCSV(string basefolder) {
 	wxString bmmlines = _(L"");
 	unsigned int i, j;
 	for (i = 0; i < battle_amount; i++) {
+		// Custom battles already export their background via BattleScene in ExportAssets.
+		if (addition[i] != NULL)
+			continue;
 		if (battle[i]->scene_id == battle[i]->base_scene_id)
 			continue;
 		bscindex = -1;

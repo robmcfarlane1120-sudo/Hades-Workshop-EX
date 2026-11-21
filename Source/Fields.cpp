@@ -1091,8 +1091,16 @@ int FieldTilesDataStruct::WriteBGX(string destfolder, string bgxfilename) {
 			if (ts.memoria_bgx_path.IsEmpty()) {
 				sizes.push_back({ 0, 0 });
 			} else {
-				if (!ts.memoria_bgx_path.IsSameAs(filename, false))
-					wxCopyFile(ts.memoria_bgx_path, filename);
+				if (!ts.memoria_bgx_path.IsSameAs(filename, false)) {
+                    if (wxFileExists(filename)) {
+                        // Repeated references are legal only when they refer to the same source.
+                        for (unsigned int previous = 0; previous < i; ++previous)
+                            if (wxFileName(tiles[previous].memoria_bgx_path).GetFullName() == fnformat.GetFullName() &&
+                                !tiles[previous].memoria_bgx_path.IsSameAs(ts.memoria_bgx_path, false)) return 3;
+                    }
+                    if (!wxCopyFile(ts.memoria_bgx_path, filename, true)) return 3;
+                }
+                if (!wxFileExists(filename)) return 3;
 				sizes.push_back({ ts.width * parent->tile_size / FIELD_TILE_BASE_SIZE, ts.height * parent->tile_size / FIELD_TILE_BASE_SIZE });
 			}
 		}
@@ -1111,6 +1119,8 @@ int FieldTilesDataStruct::WriteBGX(string destfolder, string bgxfilename) {
 		}
 		sizes = ExportLayerAsPNG(overlays);
 	}
+	for (unsigned int image = 0; image < overlays.size(); ++image)
+        if (sizes[image].first > 0 && sizes[image].second > 0 && !wxFileExists(overlays[image].first)) return 3;
 	bool uselang = false;
 	fstream f((destfolder + bgxfilename).c_str(), ios::out);
 	if (!f.is_open())
@@ -2519,17 +2529,18 @@ void FieldSteamTitleInfo::Write(fstream& f) {
 	// ToDo ; also compute the size before
 }
 
-int FieldAdditionDataStruct::ExportAssets(ConfigurationSet& config, SaveSet& saveset, string destfolder, bool scriptsOnly) {
+int FieldAdditionDataStruct::ExportAssets(ConfigurationSet& config, SaveSet& saveset, string destfolder) {
+	int preparationError = 0;
 	string mapid = ConvertWStrToStr(L"FBG_N" + (area_id < 10 ? L"0" + to_wstring(area_id) : to_wstring(area_id)) + L"_" + map_id);
 	string fieldid = ConvertWStrToStr(L"EVT_" + field_id);
 	if (destfolder.back() != '\\' && destfolder.back() != '/')
 		destfolder += "\\";
-	if (!scriptsOnly && saveset.fieldset->background_data[index] != NULL) {
+	if (saveset.fieldset->background_data[index] != NULL) {
 		int errorcode = saveset.fieldset->background_data[index]->WriteBGX(destfolder + "StreamingAssets\\Assets\\Resources\\FieldMaps\\" + mapid + "\\", mapid + ".bgx");
 		if (errorcode != 0)
-			return errorcode;
+            preparationError = errorcode;
 	}
-	if (!scriptsOnly && saveset.fieldset->walkmesh[index] != NULL) {
+	if (saveset.fieldset->walkmesh[index] != NULL) {
 		string fname = destfolder + "StreamingAssets\\Assets\\Resources\\FieldMaps\\" + mapid + "\\" + mapid + ".bgi.bytes";
 		MainFrame::MakeDirForFile(fname);
 		fstream filedest(fname.c_str(), ios::out | ios::binary);
@@ -2538,17 +2549,18 @@ int FieldAdditionDataStruct::ExportAssets(ConfigurationSet& config, SaveSet& sav
 		saveset.fieldset->walkmesh[index]->WriteHWS(filedest);
 		filedest.close();
 	}
-	for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; lang++) {
-		string fname = destfolder + "StreamingAssets\\Assets\\Resources\\CommonAsset\\EventEngine\\EventBinary\\Field\\" + HADES_STRING_STEAM_LANGUAGE_SHORT_NAME_FIX[lang].ToStdString() + "\\" + fieldid + ".eb.bytes";
-		MainFrame::MakeDirForFile(fname);
-		fstream filedest(fname.c_str(), ios::out | ios::binary);
-		if (!filedest.is_open())
-			return 3;
-		saveset.fieldset->script_data[index]->WriteSteam(filedest, true, lang);
-		filedest.close();
-	}
+    // HWS role data is Memoria's MapConfigData (lighting and character settings).
+    if (saveset.fieldset->role[index] != NULL) {
+        string fname = destfolder + "StreamingAssets\\Assets\\Resources\\CommonAsset\\MapConfigData\\" + fieldid + ".bytes";
+        MainFrame::MakeDirForFile(fname);
+        fstream output(fname.c_str(), ios::out | ios::binary);
+        if (!output.is_open()) return 3;
+        saveset.fieldset->role[index]->WriteHWS(output);
+        output.close();
+        if (!output) return 3;
+    }
 	int spsindex = saveset.fieldset->GetIndexById(sps_pool);
-	if (!scriptsOnly && spsindex >= 0 && config.field_file_id[spsindex] > 0) {
+	if (spsindex >= 0 && spsindex < config.field_amount && config.field_file_id[spsindex] > 0) {
 		fstream filebase(config.steam_dir_assets + "p0data1" + to_string(config.field_file_id[spsindex]) + ".bin", ios::in | ios::binary);
 		if (!filebase.is_open())
 			return 2;
@@ -2567,6 +2579,23 @@ int FieldAdditionDataStruct::ExportAssets(ConfigurationSet& config, SaveSet& sav
 				return errcode;
 		}
 		filebase.close();
+	}
+	return preparationError;
+}
+
+int FieldAdditionDataStruct::ExportScripts(ConfigurationSet& config, SaveSet& saveset, string destfolder) {
+	string mapid = ConvertWStrToStr(L"FBG_N" + (area_id < 10 ? L"0" + to_wstring(area_id) : to_wstring(area_id)) + L"_" + map_id);
+	string fieldid = ConvertWStrToStr(L"EVT_" + field_id);
+	if (destfolder.back() != '\\' && destfolder.back() != '/')
+		destfolder += "\\";
+	for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; lang++) {
+		string fname = destfolder + "StreamingAssets\\Assets\\Resources\\CommonAsset\\EventEngine\\EventBinary\\Field\\" + HADES_STRING_STEAM_LANGUAGE_SHORT_NAME_FIX[lang].ToStdString() + "\\" + fieldid + ".eb.bytes";
+		MainFrame::MakeDirForFile(fname);
+		fstream filedest(fname.c_str(), ios::out | ios::binary);
+		if (!filedest.is_open())
+			return 3;
+		saveset.fieldset->script_data[index]->WriteSteam(filedest, true, lang);
+		filedest.close();
 	}
 	int evid = saveset.fieldset->GetIdByIndex(index);
 	if (!MemoriaUtility::ExportDictionaryPatchLines(destfolder + HADES_STRING_DICTIONARY_PATCH_FILE, wxString::Format(wxT("FieldScene %d "), evid), wxString::Format(wxT("FieldScene %d %d %s %s %d\n"), evid, area_id, map_id, field_id, text_block_id)))

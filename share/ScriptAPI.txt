@@ -1,0 +1,553 @@
+Function 274
+SetCharacterEquipment
+"[Memoria 9/2023 required]
+Change the piece of equipment of a player, using it from the player's inventory.
+
+1st argument: character to (re-)equip.
+2nd argument: equipment type (0/1/2/3/4 for weapon/head/wrist/armor/accessory).
+3rd argument: item to equip."
+3
+LCHARACTER "Character"
+USPIN "Type"
+ITEM "Equipment"
+
+
+Function 275
+SetCharacterLevel
+"[Memoria 9/2023 required]
+Change the character's level.
+
+1st argument: character to re-level.
+2nd argument: level to reach."
+2
+LCHARACTER "Character"
+USPIN "Level"
+
+
+Function 276
+SetCharacterExp
+"[Memoria 9/2023 required]
+Set the character's experience to the given amount. The character's level cannot be lowered that way.
+
+1st argument: character to consider.
+2nd argument: experience amount."
+2
+LCHARACTER "Character"
+USPIN "Experience"
+
+
+Function 277
+AddShopItem
+"[Memoria 9/2023 required]
+Add or remove an item to be bought in a shop.
+
+1st argument: shop ID.
+2nd argument: item to add or remove.
+3rd argument: boolean add/remove."
+3
+USPIN "Shop"
+ITEM "Item"
+BOOL "Add to shop"
+
+
+Function 278
+AddShopSynthesis
+"[Memoria 9/2023 required]
+Add or remove a synthesis recipe in a shop.
+
+1st argument: shop ID.
+2nd argument: recipe to add or remove.
+3rd argument: boolean add/remove."
+3
+USPIN "Shop"
+USPIN "Recipe"
+BOOL "Add to shop"
+
+
+Function 279
+WalkEx
+"[Memoria 9/2023 required]
+Make the specified character walk to destination.
+
+1st argument: object to move.
+2nd argument: walk speed.
+3rd to 5th arguments: position in (X, Z, Y) format.
+6th argument: movement flags.
+ 1: side walk (don't turn).
+ 2: take the Z coordinate into account, and also disable the pathing and shadow during the movement."
+6
+ENTRY "Character"
+USPIN "Speed"
+POSITION_X "Destination"
+POSITION_Z
+POSITION_Y
+BOOLLIST "Flags"
+
+
+Function 280
+TurnTowardObjectEx
+"[Memoria 9/2023 required]
+Make the specified character turn toward the specified object.
+
+1st argument: character to turn.
+2nd argument: object to look at.
+3rd argument: turn speed."
+3
+ENTRY "Character"
+ENTRY "Target"
+USPIN "Turn speed"
+
+
+Function 281
+SetLogicalAnimationEx
+"[Memoria 9/2023 required]
+Change the logical animation of the specified entry.
+
+1st argument: object re-animated.
+2nd argument: type of logical animation.
+ 0: stand,
+ 1: walk,
+ 2: run,
+ 3: turn left,
+ 4: turn right,
+ 5: inactive,
+ 6: jump.
+3rd argument: animation to use."
+3
+ENTRY "Character"
+SPIN "Type"
+ANIMATION "Animation"
+
+
+Function 282
+ClearMemoriaVector
+"[Memoria 9/2023 required]
+Empty a vector in the vector system provided by Memoria.
+
+1st argument: vector ID to clear."
+1
+SPIN "Vector ID"
+
+Function 283
+ClearMemoriaDictionary
+"[Memoria 9/2023 required]
+Empty a dictionary in the dictionary system provided by Memoria.
+
+1st argument: dictionary ID to clear."
+1
+SPIN "Dictionary ID"
+
+
+Function 284
+SetTilePositionTimed
+"[Memoria 04/2024 required]
+Move a tile block over time.
+
+1st argument: background tile block.
+2nd and 3rd argument: movement in (dX, dY) format.
+4th argument: depth, with higher value being further away from camera.
+5th argument: frame duration for that movement."
+5
+TILE "Tile Block"
+SPIN "Position X"
+SPIN "Position Y"
+SPIN "Position Closeness"
+USPIN "Time"
+
+
+Function 285
+AddBattleStatus
+"[Memoria 08/2024 required]
+Apply a status to one or multiple units in battle, with possible status parameters.
+
+1st argument: unit(s) to which the status is applied (eg. SV_FunctionEnemy).
+2nd argument: the status index to apply (0 for Petrify, 1 for Venom, 2 for Virus...).
+3rd argument: whether it should be added as a permanent status.
+4th to 6th arguments: optional parameters."
+6
+USPIN "Unit"
+USPIN "Status"
+BOOL "As Permanent"
+SPIN "1st Argument"
+SPIN "2nd Argument"
+SPIN "3rd Argument"
+
+
+Function 286
+RemoveBattleStatus
+"[Memoria 08/2024 required]
+Remove a status from one or multiple units in battle.
+
+1st argument: unit(s) from which the status is removed (eg. SV_FunctionEnemy).
+2nd argument: the status index to remove (0 for Petrify, 1 for Venom, 2 for Virus...).
+3rd argument: whether it should be removed as a permanent status."
+3
+USPIN "Unit(s)"
+USPIN "Status"
+BOOL "As Permanent"
+
+
+Function 287
+SetDefaultFieldLight
+"[Memoria 10/2026 required]
+Change the light parameters of the field.
+
+1st argument: light type (1 for the default light, 2 for the light on ladders).
+2nd to 4th arguments: ambiant color factors.
+5th argument: intensity of shadows.
+6th argument: scale of shadows."
+6
+SPIN "Type"
+SPIN "Red factor"
+SPIN "Green factor"
+SPIN "Blue factor"
+SPIN "Shadow amp"
+SPIN "Shadow scale"
+
+
+Function 288
+SetWalkpathLight
+"[Memoria 10/2026 required]
+Change the light parameters of a specific walkpath.
+
+1st argument: walkpath index.
+2nd to 4th arguments: ambiant color, use negative values like (-16, -16, -16) in shadows, or positive values in lighted areas.
+5th argument: intensity of shadows.
+6th argument: scale of shadows."
+6
+SPIN "Walkpath"
+SPIN "Red factor"
+SPIN "Green factor"
+SPIN "Blue factor"
+SPIN "Shadow amp"
+SPIN "Shadow scale"
+
+
+Function 289
+SetModelLight
+"[Memoria 10/2026 required]
+Change the light parameters of a specific model ID.
+
+1st argument: model ID (use -1 to setup a default lightning for models).
+2nd to 4th arguments: model color factors, default is usually (128, 128, 128).
+5th argument: intensity of shadows.
+6th argument: scale of shadows."
+6
+SPIN "Model"
+SPIN "Red factor"
+SPIN "Green factor"
+SPIN "Blue factor"
+SPIN "Shadow amp"
+SPIN "Shadow scale"
+
+
+Function 290
+ChangeElementalAffinity
+"[Memoria 11/2026 required]
+Modify an elemental affinity for a specific element.
+
+1st argument: unit(s) whose affinity changes (eg. SV_FunctionEnemy).
+2nd argument: the kind of affinity to change.
+ 0: Elemental immunity,
+ 1: Elemental absorption,
+ 2: Elemental resistance,
+ 3: Elemental weakness,
+ 4: Elemental boost.
+3rd argument: the element ID (0 for Fire, 1 for Ice...).
+4th argument: add that elemental affinity if checked, remove it if not."
+4
+USPIN "Unit"
+USPIN "Affinity kind"
+USPIN "Element"
+BOOL "Add/Remove"
+
+
+
+
+
+
+
+Variable GETTER 0
+CardWinCount
+"[Memoria 9/2023 required]
+Set or get the number of player's Tetra Master wins."
+
+Variable GETTER 1
+CardLossCount
+"[Memoria 9/2023 required]
+Set or get the number of player's Tetra Master losses."
+
+Variable GETTER 2
+CardDrawCount
+"[Memoria 9/2023 required]
+Set or get the number of player's Tetra Master draws."
+
+Variable GETTER 3
+GetCardPoints
+"[Memoria 9/2023 required]
+Get the player's Tetra Master points."
+
+Variable GETTER 4
+GetCardRank
+"[Memoria 9/2023 required]
+Get the player's Tetra Master rank."
+
+Variable GETTER 5
+GetTreasureHunterPoints
+"[Memoria 9/2023 required]
+Get the number of points for the player's Treasure Hunter rank."
+
+Variable GETTER 6
+BattleCanRunaway
+"[Memoria 04/2024 required]
+Set or get whether the player can run away from the current battle."
+
+Variable GETTER 7
+BattleNoGameOver
+"[Memoria 05/2025 required]
+Set or get whether a loss results in a game over for the current battle."
+
+Variable GETTER 8
+BattleVictoryFanfare
+"[Memoria 05/2025 required]
+Set or get whether the victory fanfare plays at the end of the current battle."
+
+Variable GETTER 9
+BattleIpsenCurse
+"[Memoria 05/2025 required]
+Set or get whether the Ipsen Curse (revert attack power) applies to the current battle."
+
+Variable GETTER 10
+BattleDisableRewards
+"[Memoria 05/2025 required]
+Set or get whether the current battle ends with a reward screen and gives Exp/AP/Gil/Item drops."
+
+Variable GETTER 11
+TotalBattleCount
+"[Memoria 08/2026 required]
+Get (or change) the counter of battles fought since the start of the game.
+FF9StateSystem.Common.FF9.party.battle_no."
+
+Variable GETTER 12
+TotalEscapeCount
+"[Memoria 08/2026 required]
+Get (or change) the counter of battles fled since the start of the game.
+FF9StateSystem.Common.FF9.party.escape_no."
+
+Variable GETTER 13
+GetLanguageId
+"[Memoria 08/2026 required]
+Get the game's current language ID.
+0: English (US)
+1: English (UK)
+2: Japanese
+3: German
+4: French
+5: Italian
+6: Spanish"
+
+
+
+
+
+
+VarCode 0
+ConvertRegularItemId
+"[Memoria 9/2023 required]
+Convert a regular item ID into a generic item ID.
+For example, if you have created a custom item with ID 1000, use AddItem(ConvertRegularItemId(1000), 1) to give it to the player."
+1
+
+VarCode 1
+ConvertItemIdToRegular
+"[Memoria 9/2023 required]
+Convert a generic item ID into a regular item ID."
+1
+
+VarCode 2
+ConvertKeyItemId
+"[Memoria 9/2023 required]
+Convert a key item ID into a generic item ID.
+For example, if you have created a custom key item with ID 1000, use AddItem(ConvertKeyItemId(1000), 1) to give it to the player."
+1
+
+VarCode 3
+ConvertItemIdToKey
+"[Memoria 9/2023 required]
+Convert a generic item ID into a key item ID."
+1
+
+VarCode 4
+ConvertCardItemId
+"[Memoria 9/2023 required]
+Convert a card ID into a generic item ID.
+For example, if you have created a custom card with ID 1000, use AddItem(ConvertCardItemId(1000), 1) to give it to the player."
+1
+
+VarCode 5
+ConvertItemIdToCard
+"[Memoria 9/2023 required]
+Convert a generic item ID into a card ID."
+1
+
+VarCode 6
+ConvertActiveAbilityId
+"[Memoria 9/2023 required]
+Convert a spell ID into a generic ability ID.
+For example, if you have created a custom spell with ID 1000, use LearnAbility(0, ConvertActiveAbilityId(1000)) to let Zidane learn it."
+1
+
+VarCode 7
+ConvertAbilityIdToActive
+"[Memoria 9/2023 required]
+Convert a generic ability ID into a spell ID."
+1
+
+VarCode 8
+ConvertSupportAbilityId
+"[Memoria 9/2023 required]
+Convert a supporting ability ID into a generic ability ID.
+For example, if you have created a custom supporting ability with ID 1000, use LearnAbility(0, ConvertSupportAbilityId(1000)) to let Zidane learn it."
+1
+
+VarCode 9
+ConvertAbilityIdToSupport
+"[Memoria 9/2023 required]
+Convert a generic ability ID into a supporting ability ID."
+1
+
+VarCode 10
+GetPartyMember
+"[Memoria 9/2023 required]
+Return a character that is a party member.
+The argument is the party's slot and should be between 0 and 3."
+1
+
+VarCode 11
+GetItemFullCount
+"[Memoria 9/2023 required]
+Return the amount of items of a regular item type, counting both those in the player's inventory and those equipped."
+1
+
+VarCode 12
+GetCharacterEquipment
+"[Memoria 9/2023 required]
+Return the regular item equipped by a player character.
+
+1st argument: character to consider.
+2nd argument: equipment slot (0/1/2/3/4 for weapon/head/wrist/armor/accessory)."
+2
+
+VarCode 13
+GetCharacterLevel
+"[Memoria 9/2023 required]
+Return the player character's level."
+1
+
+VarCode 14
+GetCharacterExp
+"[Memoria 9/2023 required]
+Return the player character's experience."
+1
+
+VarCode 15
+GetLevelExperience
+"[Memoria 9/2023 required]
+Return the experience amount required to reach the given level."
+1
+
+VarCode 16
+IsAbilityLearnt
+"[Memoria 9/2023 required]
+Check if an ability is learnt by a character.
+
+1st argument: character to consider.
+2nd argument: generic ability to check.
+3rd argument: boolean for whether to take the current equipment into account or only the AP progression."
+3
+
+VarCode 17
+IsSupportEnabled
+"[Memoria 9/2023 required]
+Check if a supporting ability is currently activated by the given character.
+
+1st argument: character to consider.
+2nd argument: supporting ability to check."
+2
+
+VarCode 18
+IsItemInShop
+"[Memoria 9/2023 required]
+Check if a regular item is sold by the given shop.
+
+1st argument: shop to consider.
+2nd argument: regular item to check."
+2
+
+VarCode 19
+IsSynthesisInShop
+"[Memoria 9/2023 required]
+Check if a synthesis recipe is available in the given shop.
+
+1st argument: shop to consider.
+2nd argument: synthesis recipe to check."
+2
+
+VarCode 20
+MemoriaVector
+"[Memoria 9/2023 required]
+Access or modify an entry in a vector.
+Using 'set MemoriaVector(ID, MemoriaVectorSize(ID)) = VALUE' appends a new entry to the vector.
+If the array index is not in the range [0, MemoriaVectorSize - 1] for value access, 0 is returned.
+If the array index is not in the range [0, MemoriaVectorSize] for value setter, nothing is done.
+
+1st argument: vector ID.
+2nd argument: array index."
+2
+
+VarCode 21
+MemoriaVectorSize
+"[Memoria 9/2023 required]
+Access (or modify) the size of a vector.
+Using 'set MemoriaVectorSize(ID) = SIZE' resizes the vector, clearing the extra entries or appending zeros.
+
+1st argument: vector ID."
+1
+
+VarCode 22
+MemoriaDictionary
+"[Memoria 9/2023 required]
+Access or modify an entry in a dictionary.
+Until a dictionary entry is set, its value is 0.
+
+1st argument: dictionary ID.
+2nd argument: entry ID."
+2
+
+VarCode 23
+CategoryKillCount
+"[Memoria 08/2026 required]
+Access the counter of kills for a given enemy category.
+Categories are:
+0: Humanoid
+1: Beast
+2: Devil / Demon
+3: Dragon
+4: Undead
+5: Stone
+6: Soul / Insect
+7: Aerial / Bird"
+1
+
+VarCode 24
+ModelKillCount
+"[Memoria 08/2026 required]
+Access the counter of kills for a given enemy model.
+Refer to the 3D model numerical ID of the different enemies."
+1
+
+VarCode 25
+AbilityUsageCount
+"[Memoria 08/2026 required]
+Access the number of times a specific ability has been used by the player through the game."
+1

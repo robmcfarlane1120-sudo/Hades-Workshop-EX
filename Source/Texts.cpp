@@ -646,6 +646,17 @@ int TextDataSet::AddCustomBlock(uint16_t id, const wstring& label) {
 	return amount++;
 }
 
+bool TextDataSet::RemoveCustomBlock(unsigned int index) {
+    if (index >= amount || !text_data[index] || !text_data[index]->custom_block) return false;
+    delete[] text_data[index];
+    text_data.erase(text_data.begin() + index);
+    struct_id.erase(struct_id.begin() + index);
+    name.erase(name.begin() + index);
+    tim_amount.erase(tim_amount.begin() + index);
+    --amount;
+    return true;
+}
+
 static constexpr uint8_t CUSTOM_TEXT_BLOCK = 0xFA; // Name followed by multilingual text chunk.
 
 int* TextDataSet::LoadHWS(fstream& ffhws, UnusedSaveBackupPart& backup, uint32_t sectionend) {

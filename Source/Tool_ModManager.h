@@ -14,6 +14,12 @@ public:
 	ToolModManager(wxWindow* p);
 	~ToolModManager();
 	int ShowModal(CDDataStruct* data);
+	static void SyncProjectWorkspace(CDDataStruct& project);
+	static bool SyncTextBlockWorkspace(CDDataStruct& project, unsigned int index, wxWindow* parent = nullptr);
+	static bool SyncFieldWorkspace(CDDataStruct& project, int fieldId, ScriptDataStruct& script, wxWindow* parent = nullptr);
+	static void CreateWorkspaceRoot();
+	static bool HasPendingWorkspaceChanges(const CDDataStruct& project);
+	static void ReviewWorkspace(CDDataStruct& project, wxWindow* parent);
 
 private:
 	wxMenu* list_popup_menu;

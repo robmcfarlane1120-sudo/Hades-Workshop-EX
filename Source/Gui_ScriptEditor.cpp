@@ -6,6 +6,8 @@
 #include <stack>
 #include <wx/clipbrd.h>
 #include <wx/display.h>
+#include <wx/stc/stc.h>
+#include "Tool_ModManager.h"
 #include <wx/msgdlg.h>
 #include <wx/tokenzr.h>
 #include "Gui_Manipulation.h"
@@ -22,6 +24,7 @@
 #define POSITION_PANEL_SIZE			200
 #define WORLDMAP_PANEL_WIDTH		256
 #define WORLDMAP_PANEL_HEIGHT		216
+
 
 const static wxColour FUNCTION_COLOR_NORMAL(255, 255, 255);
 const static wxColour FUNCTION_COLOR_MODIFIED(255, 200, 0);
@@ -539,7 +542,7 @@ ScriptEditDialog::ScriptEditDialog(wxWindow* parent, ScriptDataStruct& scpt, int
 		font.SetFractionalPointSize((wxNORMAL_FONT->GetFractionalPointSize() + 4) * 1.25 + 2);
 		control->SetFont(font);
 	}
-	m_scripttext->SetDefaultStyle(wxTextAttr(wxNullColour, wxNullColour, m_scripttext->GetFont()));
+	ConfigureScriptText();
 	m_panelbattle->Enable(script_type == SCRIPT_TYPE_BATTLE);
 	m_panelfield->Enable(script_type == SCRIPT_TYPE_FIELD);
 	m_panelworld->Enable(script_type == SCRIPT_TYPE_WORLD);
@@ -808,21 +811,23 @@ void ScriptEditDialog::FindScriptText(bool backwards) {
 		return;
 	long from, to;
 	m_scripttext->GetSelection(&from, &to);
-	wxTextSearch search(query);
-	search.MatchCase((scriptFindData.GetFlags() & wxFR_MATCHCASE) != 0)
-		.SearchDirection(backwards ? wxTextSearch::Direction::Up : wxTextSearch::Direction::Down)
-		.Start(backwards ? from : to);
-	auto match = m_scripttext->SearchText(search);
-	if (!match)
-		match = m_scripttext->SearchText(search.Start(backwards ? m_scripttext->GetLastPosition() : 0));
-	if (match) {
-		m_scripttext->SetSelection(match.m_start, match.m_end);
-		m_scripttext->ShowPosition(match.m_start);
+	const int length = m_scripttext->GetTextLength();
+	const int end = backwards ? 0 : length;
+	const int flags = (scriptFindData.GetFlags() & wxFR_MATCHCASE) ? wxSTC_FIND_MATCHCASE : 0;
+	int matchEnd;
+	int match = m_scripttext->FindText(backwards ? from : to, end, query, flags, &matchEnd);
+	if (match < 0)
+		match = m_scripttext->FindText(backwards ? length : 0, end, query, flags, &matchEnd);
+	if (match >= 0) {
+		m_scripttext->EnsureVisible(m_scripttext->LineFromPosition(match));
+		m_scripttext->SetSelection(match, matchEnd);
+		m_scripttext->ScrollRange(matchEnd, match);
 	} else
 		wxBell();
 }
 
 ScriptEditDialog::~ScriptEditDialog() {
+	timer->Stop();
 	CloseOpcodeBrowser();
 	if (scriptFindDialog)
 		delete scriptFindDialog;
@@ -889,6 +894,11 @@ int ScriptEditDialog::ShowModal() {
 	timer->Start(TIMER_TIMEOUT);
 	const int result = wxDialog::ShowModal();
 	CloseOpcodeBrowser();
+	if (result != wxID_OK && workspaceUpdated) {
+		const int index = workspaceProject->fieldset.GetIndexById(workspaceFieldId);
+		if (index >= 0)
+			ToolModManager::SyncFieldWorkspace(*workspaceProject, workspaceFieldId, *workspaceProject->fieldset.script_data[index]);
+	}
 	return result;
 }
 
@@ -903,6 +913,7 @@ void ScriptEditHandler::AddFunction(int entryid, int funcidpos, uint16_t functyp
 void ScriptEditHandler::AddEntry(int entrypos, uint8_t entrytype, int playerlink) {
 	if (entrypos < script.entry_amount) {
 		script.AddEntry(entrypos, entrytype, playerlink);
+		func_str.insert(func_str.begin() + entrypos, wxArrayString());
 		localvar_str.Insert(globalvar_str, entrypos);
 		entry_name.Insert(wxString::Format(wxT("NewEntry%d"), entrypos), entrypos);
 		entry_model_index.insert(entry_model_index.begin() + entrypos, -1);
@@ -917,6 +928,7 @@ void ScriptEditHandler::AddEntry(int entrypos, uint8_t entrytype, int playerlink
 		}
 		while (script.entry_amount < aimcount) {
 			script.AddEntry(newentrypos, entrytype, playerlink);
+			func_str.insert(func_str.begin() + newentrypos, wxArrayString());
 			localvar_str.Insert(globalvar_str, newentrypos);
 			entry_name.Insert(wxString::Format(wxT("NewEntry%d"), newentrypos), newentrypos);
 			entry_model_index.insert(entry_model_index.begin() + newentrypos, -1);
@@ -1174,7 +1186,8 @@ wxString ScriptEditHandler::ConvertVarArgument(ScriptArgument& arg, SteamLanguag
 
 void ScriptEditHandler::GenerateStandardLine(wxString& str, ScriptOperation* op, SteamLanguage displaylang, wxArrayString* argcommentptr) {
 	unsigned int i;
-	str += _(HADES_STRING_SCRIPT_OPCODE[op->opcode].label) + _(L"( ");
+	const auto& metadata = HADES_STRING_SCRIPT_OPCODE[op->opcode];
+	str += _(metadata.label) + _(L"( ");
 	for (i = 0; i < op->arg_amount; i++) {
 		ScriptArgument& arg = op->arg[i];
 		if (arg.is_var)
@@ -1185,8 +1198,9 @@ void ScriptEditHandler::GenerateStandardLine(wxString& str, ScriptOperation* op,
 			str << arg.GetValue();
 		if (i + 1 < op->arg_amount)
 			str += _(L", ");
-		if (argcommentptr != NULL && !arg.is_var) {
-			wxString argcommenttoken = GetArgumentDescription(arg.GetValue(), HADES_STRING_SCRIPT_OPCODE[op->opcode].arg_type[i], displaylang);
+		// Variable-length opcodes such as SetRegion do not have per-argument metadata.
+		if (argcommentptr != NULL && !arg.is_var && static_cast<int>(i) < metadata.arg_amount && metadata.arg_type) {
+			wxString argcommenttoken = GetArgumentDescription(arg.GetValue(), metadata.arg_type[i], displaylang);
 			if (argcommenttoken.Len() > 0)
 				argcommentptr->Add(argcommenttoken);
 		}
@@ -1352,7 +1366,13 @@ bool ScriptEditHandler::GenerateFunctionStrings_Rec(wxString& str, ScriptFunctio
 				continue;
 			langstr = wxEmptyString;
 			ScriptOperation* op = &func.op[langindices[oppos]];
-			bool iscontrolvararg = op->opcode == 0x05 && oppos + 1 < langindices.size() && (func.op[langindices[oppos + 1]].opcode == 0x02 || func.op[langindices[oppos + 1]].opcode == 0x03 || func.op[langindices[oppos + 1]].opcode == 0x06 || func.op[langindices[oppos + 1]].opcode == 0x0B);
+			// An expression can end a function, or precede a language-specific gap.
+			// Only fold it into a control statement when a valid next operation exists.
+			const int32_t nextindex = oppos + 1 < langindices.size() ? langindices[oppos + 1] : -1;
+			const ScriptOperation* nextop = nextindex >= 0 && static_cast<size_t>(nextindex) < func.op.size()
+				? &func.op[nextindex] : nullptr;
+			bool iscontrolvararg = op->opcode == 0x05 && nextop &&
+				(nextop->opcode == 0x02 || nextop->opcode == 0x03 || nextop->opcode == 0x06 || nextop->opcode == 0x0B);
 			SteamLanguage displaylang = STEAM_LANGUAGE_AMOUNT;
 			for (olang = 0; olang < STEAM_LANGUAGE_AMOUNT; olang++) {
 				langproceednow[olang] = false;
@@ -1556,8 +1576,7 @@ bool ScriptEditHandler::GenerateFunctionStrings_Rec(wxString& str, ScriptFunctio
 				break;
 			}
 			case 0x05: {
-				ScriptOperation& nextop = func.op[langindices[oppos + 1]];
-				if (nextop.opcode != 0x02 && nextop.opcode != 0x03 && nextop.opcode != 0x06 && nextop.opcode != 0x0B) {
+				if (!iscontrolvararg) {
 					str += tabstr + langstr + _(HADES_STRING_SCRIPT_OPCODE[op->opcode].label) + _(L" ") + ConvertVarArgument(op->arg[0], displaylang, argcommentptr, &ignorenulljump);
 					MACRO_WRITECEOL()
 					MACRO_REGISTER_FUNCPOSTRACK(funcpos[macrolang])
@@ -2874,6 +2893,188 @@ static wxString keywords[] = {
 	L"case",	L"default",		L"break",
 	L"Function",L"forward"
 };
+
+namespace {
+constexpr int ScriptBlockIndicator = 8;
+constexpr int ScriptVariableIndicator = 9;
+}
+
+void ScriptEditDialog::ConfigureScriptText() {
+	auto& editor = *m_scripttext;
+	editor.SetLexer(wxSTC_LEX_CPP);
+	editor.SetProperty("lexer.cpp.track.preprocessor", "0");
+	editor.SetProperty("fold", "1");
+	editor.SetProperty("fold.at.else", "1");
+	editor.SetEOLMode(wxSTC_EOL_LF);
+	editor.SetUseTabs(false);
+	editor.SetTabWidth(4);
+	editor.SetIndent(4);
+	editor.SetIndentationGuides(wxSTC_IV_LOOKBOTH);
+	editor.SetWrapMode(wxSTC_WRAP_NONE);
+	editor.SetScrollWidthTracking(true);
+
+	wxString words = "set return ";
+	for (const auto& keyword : keywords)
+		if (keyword != "Function")
+			words += keyword + " ";
+	editor.SetKeyWords(0, words);
+	scriptOpcodeWords = "Function ";
+	for (const auto& opcode : HADES_STRING_SCRIPT_OPCODE)
+		scriptOpcodeWords += wxString(opcode.second.label) + " ";
+	for (const auto& function : FlexibleFunctionNameList)
+		scriptOpcodeWords += wxString(function.second.name) + " ";
+	editor.SetKeyWords(1, scriptOpcodeWords);
+
+	wxString variables;
+	for (const auto& variable : VarNameList)
+		variables += wxString(variable.name) + " ";
+	for (const auto& operation : VarOpList) {
+		const wxString name(operation.opstring);
+		if (name.StartsWith("VAR_") && name.EndsWith("_"))
+			variables += "^" + name + " ";
+	}
+	editor.SetKeyWords(3, variables);
+
+	const wxColour background(35, 38, 43), gutter(41, 45, 51);
+	const wxColour foreground(224, 229, 235), comment(139, 172, 142);
+	wxFont font = editor.GetFont();
+	font.SetFamily(wxFONTFAMILY_TELETYPE);
+	font.SetFaceName("Consolas");
+	editor.StyleSetFont(wxSTC_STYLE_DEFAULT, font);
+	editor.StyleSetBackground(wxSTC_STYLE_DEFAULT, background);
+	editor.StyleSetForeground(wxSTC_STYLE_DEFAULT, foreground);
+	editor.StyleClearAll();
+	editor.StyleSetForeground(wxSTC_C_WORD, wxColour(202, 171, 238));
+	editor.StyleSetForeground(wxSTC_C_WORD2, wxColour(141, 208, 235));
+	editor.StyleSetForeground(wxSTC_C_GLOBALCLASS, wxColour(236, 211, 151));
+	editor.StyleSetForeground(wxSTC_C_NUMBER, wxColour(236, 171, 132));
+	editor.StyleSetForeground(wxSTC_C_OPERATOR, wxColour(207, 215, 224));
+	for (int style : {wxSTC_C_COMMENT, wxSTC_C_COMMENTLINE, wxSTC_C_COMMENTDOC, wxSTC_C_COMMENTLINEDOC})
+		editor.StyleSetForeground(style, comment);
+	for (int style : {wxSTC_C_STRING, wxSTC_C_CHARACTER, wxSTC_C_STRINGEOL})
+		editor.StyleSetForeground(style, wxColour(153, 195, 156));
+	editor.StyleSetForeground(wxSTC_STYLE_INDENTGUIDE, wxColour(75, 82, 92));
+	editor.StyleSetBackground(wxSTC_STYLE_LINENUMBER, gutter);
+	editor.StyleSetForeground(wxSTC_STYLE_LINENUMBER, wxColour(158, 169, 182));
+	editor.StyleSetBackground(wxSTC_STYLE_BRACELIGHT, wxColour(52, 84, 106));
+	editor.StyleSetForeground(wxSTC_STYLE_BRACELIGHT, wxColour(230, 244, 255));
+	editor.StyleSetBackground(wxSTC_STYLE_BRACEBAD, wxColour(114, 54, 61));
+	editor.StyleSetForeground(wxSTC_STYLE_BRACEBAD, wxColour(255, 219, 218));
+	editor.SetCaretForeground(foreground);
+	editor.SetCaretLineBackground(wxColour(43, 48, 55));
+	editor.SetCaretLineVisible(true);
+	editor.SetSelBackground(true, wxColour(62, 87, 112));
+
+	editor.SetMarginType(0, wxSTC_MARGIN_NUMBER);
+	editor.SetMarginType(1, wxSTC_MARGIN_SYMBOL);
+	editor.SetMarginMask(1, wxSTC_MASK_FOLDERS);
+	editor.SetMarginWidth(1, FromDIP(17));
+	editor.SetMarginSensitive(1, true);
+	editor.SetMarginWidth(2, 0);
+	editor.SetFoldMarginColour(true, gutter);
+	editor.SetFoldMarginHiColour(true, gutter);
+	const wxColour marker(156, 169, 183);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDER, wxSTC_MARK_BOXPLUS, foreground, gutter);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDEROPEN, wxSTC_MARK_BOXMINUS, foreground, gutter);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDEREND, wxSTC_MARK_BOXPLUSCONNECTED, marker, gutter);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDEROPENMID, wxSTC_MARK_BOXMINUSCONNECTED, marker, gutter);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDERMIDTAIL, wxSTC_MARK_TCORNER, marker, gutter);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDERTAIL, wxSTC_MARK_LCORNER, marker, gutter);
+	editor.MarkerDefine(wxSTC_MARKNUM_FOLDERSUB, wxSTC_MARK_VLINE, marker, gutter);
+	editor.SetAutomaticFold(wxSTC_AUTOMATICFOLD_SHOW | wxSTC_AUTOMATICFOLD_CLICK | wxSTC_AUTOMATICFOLD_CHANGE);
+
+	editor.IndicatorSetStyle(ScriptBlockIndicator, wxSTC_INDIC_STRAIGHTBOX);
+	editor.IndicatorSetForeground(ScriptBlockIndicator, wxColour(113, 158, 186));
+	editor.IndicatorSetAlpha(ScriptBlockIndicator, 28);
+	editor.IndicatorSetOutlineAlpha(ScriptBlockIndicator, 125);
+	editor.IndicatorSetStyle(ScriptVariableIndicator, wxSTC_INDIC_ROUNDBOX);
+	editor.IndicatorSetForeground(ScriptVariableIndicator, wxColour(174, 146, 83));
+	editor.IndicatorSetAlpha(ScriptVariableIndicator, 37);
+	editor.IndicatorSetOutlineAlpha(ScriptVariableIndicator, 85);
+	editor.IndicatorSetUnder(ScriptVariableIndicator, true);
+
+	editor.Bind(wxEVT_STC_CHANGE, [this](wxStyledTextEvent& event) { OnFunctionUpdate(event); });
+	editor.Bind(wxEVT_STC_CHARADDED, [this](wxStyledTextEvent& event) {
+		if (event.GetKey() == '\n')
+			OnFunctionNewLine(event);
+	});
+	editor.Bind(wxEVT_STC_UPDATEUI, [this](wxStyledTextEvent& event) {
+		if (event.GetUpdated() & (wxSTC_UPDATE_SELECTION | wxSTC_UPDATE_CONTENT))
+			UpdateScriptDecorations();
+	});
+}
+
+void ScriptEditDialog::UpdateScriptDecorations() {
+	auto& editor = *m_scripttext;
+	const int count = editor.GetTextLength();
+	const int caret = editor.GetCurrentPos();
+	const int anchor = editor.GetAnchor();
+	if (!variableHighlightsDirty && caret == decoratedCaret && anchor == decoratedAnchor)
+		return;
+	decoratedCaret = caret;
+	decoratedAnchor = anchor;
+	if (editor.GetEndStyled() <= caret)
+		editor.Colourise(editor.GetEndStyled(), editor.GetLineEndPosition(editor.LineFromPosition(caret)));
+	const int width = editor.TextWidth(wxSTC_STYLE_LINENUMBER, " " + wxString::Format("%d", editor.GetLineCount())) + FromDIP(7);
+	if (editor.GetMarginWidth(0) != width)
+		editor.SetMarginWidth(0, width);
+
+	const auto isDelimiter = [&](int pos) {
+		return pos >= 0 && pos < count && editor.GetStyleAt(pos) == wxSTC_C_OPERATOR &&
+			wxString("(){}[]").Find(wxUniChar(editor.GetCharAt(pos))) != wxNOT_FOUND;
+	};
+	const int delimiter = isDelimiter(caret - 1) ? caret - 1 : (isDelimiter(caret) ? caret : -1);
+	const int match = delimiter >= 0 ? editor.BraceMatch(delimiter) : -1;
+	if (delimiter >= 0 && match < 0)
+		editor.BraceBadLight(delimiter);
+	else
+		editor.BraceHighlight(delimiter, match);
+
+	editor.SetIndicatorCurrent(ScriptBlockIndicator);
+	editor.IndicatorClearRange(0, count);
+	editor.SetHighlightGuide(0);
+	for (int pos = caret - 1; pos >= 0; --pos) {
+		const int ch = editor.GetCharAt(pos);
+		if ((ch != '{' && ch != '}') || editor.GetStyleAt(pos) != wxSTC_C_OPERATOR)
+			continue;
+		const int partner = editor.BraceMatch(pos);
+		if (ch == '}') {
+			if (partner >= 0)
+				pos = partner;
+			continue;
+		}
+		if (partner >= caret) {
+			editor.IndicatorFillRange(pos, 1);
+			editor.IndicatorFillRange(partner, 1);
+			editor.SetHighlightGuide(editor.GetLineIndentation(editor.LineFromPosition(pos)));
+		}
+		break;
+	}
+
+	const int start = editor.GetSelectionStart();
+	const int end = editor.GetSelectionEnd();
+	const int wordStart = editor.WordStartPosition(start, true);
+	const int wordEnd = editor.WordEndPosition(start, true);
+	const wxString variable = wordStart < wordEnd && editor.GetStyleAt(wordStart) == wxSTC_C_GLOBALCLASS &&
+		(start == end || (start == wordStart && end == wordEnd))
+		? editor.GetTextRange(wordStart, wordEnd) : wxString();
+	if (!variableHighlightsDirty && variable == highlightedVariable)
+		return;
+	variableHighlightsDirty = false;
+	highlightedVariable = variable;
+	editor.SetIndicatorCurrent(ScriptVariableIndicator);
+	editor.IndicatorClearRange(0, count);
+	if (variable.empty())
+		return;
+	editor.Colourise(editor.GetEndStyled(), -1);
+	int position = 0, foundEnd = 0;
+	while ((position = editor.FindText(position, count, variable, wxSTC_FIND_MATCHCASE | wxSTC_FIND_WHOLEWORD, &foundEnd)) >= 0) {
+		if (editor.GetStyleAt(position) == wxSTC_C_GLOBALCLASS)
+			editor.IndicatorFillRange(position, foundEnd - position);
+		position = foundEnd;
+	}
+}
+
 struct ParserLevelParam {
 	unsigned int rawpos[STEAM_LANGUAGE_AMOUNT];
 	unsigned int oppos;
@@ -3706,6 +3907,10 @@ LogStruct ScriptEditHandler::ParseFunction(wxString str, unsigned int entry, uns
 						varargbyte = 0;
 						j = 0;
 						while (!islastarg) {
+							if (j + 1 >= SCRPT_MAX_OPERAND) {
+								res.AddError(wxString::Format(" - Line %u: Too many region coordinates.\n", line).ToStdWstring());
+								goto end_of_loop;
+							}
 							token = GetNextPunc(linestr);
 							MACRO_CHECK_PUNC_ERROR(L"(")
 							token = GetNextThing(linestr);
@@ -3758,9 +3963,19 @@ LogStruct ScriptEditHandler::ParseFunction(wxString str, unsigned int entry, uns
 							varargbyte = 0;
 							j = 0;
 							while (!islastarg) {
+								if (j >= SCRPT_MAX_OPERAND || j >= static_cast<unsigned int>(it->second.arg_amount)) {
+									errstr.Printf(wxT(HADES_STRING_SCRIPT_ARGAMOUNT), line, _(it->second.label), it->second.arg_amount, j + 1);
+									res.AddError(errstr.ToStdWstring());
+									goto end_of_loop;
+								}
 								token = GetNextArg(linestr);
 								MACRO_CHECK_EMPTY_ERROR()
 								if (!token.IsNumber()) {
+									if (j >= 8) {
+										errstr.Printf(wxT(HADES_STRING_SCRIPT_NOVARARG), line, _(it->second.label));
+										res.AddError(errstr.ToStdWstring());
+										goto end_of_loop;
+									}
 									MACRO_CHECK_VARARG_ERROR(argvalarray[j])
 									varargbyte |= 0x1 << j;
 								}
@@ -3917,14 +4132,39 @@ void ScriptEditHandler::ApplyParsedFunction() {
 		GetDebugLog() << "APPLY PARSED: size " << (int)script.entry[entry_selection].size << " -> " << GetParsedEntryNewSize() << " ; parseopamount " << parseopamount << " ; parseindices.size " << (int)parseindices[0].size() << endl;
 	}
 	script.entry[entry_selection].size = GetParsedEntryNewSize();
-	script.entry[entry_selection].func[function_selection].op.resize(parseopamount);
-	for (unsigned int i = 0; i < parseopamount; i++)
-		script.entry[entry_selection].func[function_selection].op[i] = parseop[i];
-	if (hades::STEAM_SINGLE_LANGUAGE_MODE)
-		script.entry[entry_selection].func[function_selection].indices[GetSteamLanguage()] = parseindices[GetSteamLanguage()];
-	else
+	auto& function = script.entry[entry_selection].func[function_selection];
+	if (hades::STEAM_SINGLE_LANGUAGE_MODE) {
+		// Keep other languages' operations: their routes refer to the old pool.
+		const int oldCount = static_cast<int>(function.op.size());
+		for (unsigned int i = 0; i < parseopamount; ++i)
+			function.op.push_back(parseop[i]);
+		auto& selected = function.indices[GetSteamLanguage()];
+		selected = parseindices[GetSteamLanguage()];
+		for (int& index : selected)
+			if (index >= 0)
+				index += oldCount;
+		// Compact without assuming all language routes have equal lengths.
+		vector<int> remap(function.op.size(), -1);
+		vector<ScriptOperation> compact;
+		for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; ++lang) {
+			for (int& index : function.indices[lang]) {
+				if (index < 0)
+					continue;
+				if (remap[index] < 0) {
+					remap[index] = static_cast<int>(compact.size());
+					compact.push_back(function.op[index]);
+				}
+				index = remap[index];
+			}
+		}
+		function.op.swap(compact);
+	} else {
+		function.op.resize(parseopamount);
+		for (unsigned int i = 0; i < parseopamount; i++)
+			function.op[i] = parseop[i];
 		for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; lang++)
-			script.entry[entry_selection].func[function_selection].indices[lang] = parseindices[lang];
+			function.indices[lang] = parseindices[lang];
+	}
 	if (debuglog) {
 		GetDebugLog() << "APPLY PARSED DONE" << endl;
 	}
@@ -4086,6 +4326,12 @@ static wxString FormatOpcodeCall(const SortedChoiceItemScriptOpcode& opcode, lon
 	return call + (opcode.arg_amount > 0 ? " )" : ")");
 }
 
+
+void ScriptEditDialog::SetProjectWorkspace(CDDataStruct& project, int fieldId) {
+    workspaceProject = &project;
+    workspaceFieldId = fieldId;
+}
+
 void ScriptHelpDialog::CopySelectedCall() {
 	const int row = m_listfunction->GetSelection();
 	if (row == wxNOT_FOUND)
@@ -4190,25 +4436,24 @@ void ScriptHelpDialog::OnListDoubleClick(wxCommandEvent& event) {
 		const auto* opcode = static_cast<SortedChoiceItemScriptOpcode*>(m_listfunction->GetClientData(row));
 		long firstArgument = -1;
 		const wxString call = FormatOpcodeCall(*opcode, &firstArgument);
-		wxTextCtrl* editor = parent->m_scripttext;
+		wxStyledTextCtrl* editor = parent->m_scripttext;
 		const long lastCaret = parent->opcodeInsertEnd >= 0 ? parent->opcodeInsertEnd : editor->GetInsertionPoint();
 		const long caret = std::min(lastCaret, editor->GetLastPosition());
-		long rowNumber;
-		if (!editor->PositionToXY(caret, nullptr, &rowNumber))
-			return;
+		const int rowNumber = editor->LineFromPosition(caret);
 		const wxString line = editor->GetLineText(rowNumber);
 		const wxString indent = line.Left(line.find_first_not_of(" \t"));
-		const long lineStart = editor->XYToPosition(0, rowNumber);
-		const long lineEnd = lineStart + editor->GetLineLength(rowNumber);
+		const long lineStart = editor->PositionFromLine(rowNumber);
+		const long lineEnd = editor->GetLineEndPosition(rowNumber);
 		const bool blank = line.length() == indent.length();
 		const wxString prefix = blank ? indent : "\n" + indent;
 		const long insertAt = blank ? lineStart : lineEnd;
 		editor->Replace(insertAt, lineEnd, prefix + call);
-		const long callStart = editor->XYToPosition(static_cast<long>(indent.length()), rowNumber + (blank ? 0 : 1));
-		parent->opcodeInsertEnd = callStart + static_cast<long>(call.length());
+		const int insertedRow = rowNumber + (blank ? 0 : 1);
+		const int callStart = editor->PositionFromLine(insertedRow) + static_cast<int>(indent.length());
+		parent->opcodeInsertEnd = editor->GetLineEndPosition(insertedRow);
 		if (firstArgument >= 0)
 			editor->SetSelection(callStart + firstArgument, callStart + firstArgument + 1);
-		editor->ShowPosition(parent->opcodeInsertEnd);
+		editor->ScrollRange(callStart, parent->opcodeInsertEnd);
 	} else if (id == wxID_VARIABLE) {
 		VariableName* item = static_cast<VariableName*>(event.GetClientData());
 		parent->m_scripttext->WriteText(_(item->name));
@@ -4320,10 +4565,18 @@ void ScriptEditDialog::DisplayFunction(unsigned int entry, unsigned int function
 	entry_selection = entry;
 	function_selection = function;
 	{
-		wxEventBlocker blockTextEvents(m_scripttext, wxEVT_TEXT);
-		m_scripttext->ChangeValue(func_str[entry][function]);
+		wxEventBlocker blockTextEvents(m_scripttext, wxEVT_STC_CHANGE);
+		const wxString name = GetFunctionName(entry, script.entry[entry].func[function].function_type).AfterFirst(' ');
+		m_scripttext->SetKeyWords(1, scriptOpcodeWords + " " + name);
+		m_scripttext->SetText(func_str[entry][function]);
+		m_scripttext->EmptyUndoBuffer();
+		m_scripttext->SetSavePoint();
+		m_scripttext->Colourise(0, -1);
+		m_scripttext->FoldAll(wxSTC_FOLDACTION_EXPAND);
+		m_scripttext->GotoPos(0);
 	}
-	func_str[entry][function] = m_scripttext->GetValue();
+	variableHighlightsDirty = true;
+	UpdateScriptDecorations();
 	m_localvartext->ChangeValue(localvar_str[entry]);
 	line_selection = -1;
 	text_x_selection = -1;
@@ -5233,8 +5486,8 @@ void ScriptEditDialog::ScriptChangeArg(int argi, int64_t value, int argshift) {
 	if (argi + 1 == arg_amount)
 		newtxt += _(L" ");
 	newtxt += scripttxt;
-	long from = m_scripttext->XYToPosition(0, line_selection);
-	long to = from + m_scripttext->GetLineLength(line_selection);
+	const int from = m_scripttext->PositionFromLine(line_selection);
+	const int to = m_scripttext->GetLineEndPosition(line_selection);
 	m_scripttext->Replace(from, to, newtxt);
 	refresh_help_force = true;
 }
@@ -5367,7 +5620,7 @@ void ScriptEditDialog::OnIntValueText(wxCommandEvent& event) {
 	}
 	m_scripttext->WriteText(intvalue);
 	if (intvalue.Last() == L'L')
-		m_scripttext->SetInsertionPoint(m_scripttext->GetInsertionPoint() - 1);
+		m_scripttext->GotoPos(m_scripttext->PositionBefore(m_scripttext->GetCurrentPos()));
 }
 
 void ScriptEditDialog::OnFunctionRightClick(wxListEvent& event) {
@@ -5538,31 +5791,22 @@ void ScriptEditDialog::OnFunctionRightClickMenu(wxCommandEvent& event) {
 void ScriptEditDialog::OnFunctionUpdate(wxCommandEvent& event) {
 	if (entry_selection == SCRIPT_ID_NO_ENTRY)
 		return;
-	wxString& draft = func_str[entry_selection][function_selection];
-	const wxString text = m_scripttext->GetValue();
-	if (draft == text)
-		return;
-	draft = text;
+	variableHighlightsDirty = true;
 	const unsigned int funclistpos = GetFunctionAbsolutePos(entry_selection, function_selection);
 	m_functionlist->SetItemTextColour(funclistpos, FUNCTION_COLOR_MODIFIED);
 	func_should_parse[funclistpos] = true;
 }
 
 void ScriptEditDialog::OnFunctionNewLine(wxCommandEvent& event) {
-	long selfrom, selto;
-	m_scripttext->GetSelection(&selfrom, &selto);
-	if (selfrom != selto)
+	const int current = m_scripttext->LineFromPosition(m_scripttext->GetCurrentPos());
+	if (current <= 0)
 		return;
-	wxString indentstr = _(L"");
-	long y, ip = m_scripttext->GetInsertionPoint();
-	if (ip > 1 && m_scripttext->GetRange(ip - 2, ip - 1).IsSameAs(L"{"))
-		indentstr += TAB_STR;
-	if (m_scripttext->PositionToXY(m_scripttext->GetInsertionPoint(), NULL, &y) && y > 0) {
-		wxString scriptline = m_scripttext->GetLineText(y - 1);
-		indentstr += scriptline.Mid(0, scriptline.find_first_not_of(L' '));
-	}
-	if (indentstr.Length() > 0)
-		m_scripttext->WriteText(indentstr);
+	const wxString previous = m_scripttext->GetLineText(current - 1);
+	wxString indent = previous.Left(previous.find_first_not_of(" \t"));
+	if (wxString(previous).Trim().EndsWith("{"))
+		indent += TAB_STR;
+	if (!indent.empty())
+		m_scripttext->ReplaceSelection(indent);
 }
 
 void ScriptEditDialog::OnChoiceSelection(wxCommandEvent& event) {
@@ -5656,6 +5900,11 @@ void ScriptEditDialog::OnButtonClick(wxCommandEvent& event) {
 				script.append_mode = 1;
 				script.entry[entry_selection].append_mode |= 1;
 			}
+			if (workspaceProject) {
+				ToolModManager::SyncFieldWorkspace(*workspaceProject, workspaceFieldId, script);
+				// Metadata refreshes even when pending external edits prevent script sync.
+				workspaceUpdated = true;
+			}
 		} else {
 			unsigned int funclistpos = 0;
 			for (i = 0; i < entry_selection; i++)
@@ -5694,9 +5943,9 @@ void ScriptEditDialog::OnButtonClick(wxCommandEvent& event) {
 void ScriptEditDialog::OnTimer(wxTimerEvent& event) {
 	if (m_functionlist->GetSelectedItemCount() == 0)
 		m_functionlist->SetItemState(0, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED);
-	long x, y;
-	if (!m_scripttext->PositionToXY(m_scripttext->GetInsertionPoint(), &x, &y))
-		return;
+	const int caret = m_scripttext->GetCurrentPos();
+	const int y = m_scripttext->LineFromPosition(caret);
+	const long x = m_scripttext->GetTextRange(m_scripttext->PositionFromLine(y), caret).length();
 	if (!wxGetMouseState().LeftIsDown())
 		refresh_control_disable = false;
 	if (x == text_x_selection && y == line_selection && !refresh_help_force)

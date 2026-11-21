@@ -7,6 +7,7 @@ class ScriptEditHandler;
 class ScriptEditDialog;
 class ScriptEditEntryDialog;
 class ScriptHelpDialog;
+class CDDataStruct;
 
 #include <vector>
 #include <wx/clrpicker.h>
@@ -132,6 +133,7 @@ public:
 	
 	ScriptEditDialog(wxWindow* parent, ScriptDataStruct& scpt, int scpttype, SaveSet* sv, EnemyDataStruct* ed, TextDataStruct* td);
 	~ScriptEditDialog();
+	void SetProjectWorkspace(CDDataStruct& project, int fieldId);
 	int ShowModal();
 	void DisplayFunctionList(int newfunc = -1, int removedfunc = -1);
 	void DisplayFunction(unsigned int entry, unsigned int function);
@@ -141,6 +143,9 @@ public:
 	void UpdateMultiLangDialogHelp(wxChoice* dialogchoice);
 
 private:
+	CDDataStruct* workspaceProject = nullptr;
+	int workspaceFieldId = -1;
+	bool workspaceUpdated = false;
 	uint32_t extra_size;
 	unsigned int world_pos_type;
 	int32_t world_pos_x;
@@ -156,6 +161,13 @@ private:
 	ScriptHelpDialog* help_dial;
 	long opcodeInsertEnd = -1;
 	void CloseOpcodeBrowser();
+	void ConfigureScriptText();
+	void UpdateScriptDecorations();
+	wxString scriptOpcodeWords;
+	wxString highlightedVariable;
+	int decoratedCaret = -1;
+	int decoratedAnchor = -1;
+	bool variableHighlightsDirty = true;
 
 	wxCheckBox* ArgCreateFlag(wxString& arg, unsigned int id);
 	wxTextCtrl* ArgCreateText(wxString& arg, unsigned int id);

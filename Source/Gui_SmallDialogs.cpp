@@ -317,9 +317,30 @@ void SteamImageMapEditDialog::OnButtonClick(wxCommandEvent& event) {
 
 // SFX
 SpellModelWindow::SpellModelWindow(wxWindow* parent) : SpellAnimationWindow(parent) {
+    for (auto& model : HADES_STRING_SPELL_MODEL)
+        m_modelall->Append(model.label, (void*)&model);
+    m_panelall->GetSizer()->Detach(m_modelint);
+    m_modelint->Reparent(this);
+    m_modelint->Show();
+    m_modelint->InvalidateBestSize();
+    m_modelint->SetMinSize(FromDIP(wxSize(220, 36)));
+    auto* idRow = new wxBoxSizer(wxHORIZONTAL);
+    idRow->Add(new wxStaticText(this, wxID_ANY, _("Animation ID")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+    idRow->Add(m_modelint, 1, wxEXPAND);
+    GetSizer()->Insert(0, idRow, 0, wxEXPAND | wxALL, FromDIP(10));
+    m_modelint->SetToolTip(_("Enter any supported SFX ID, including custom sequences such as 30041."));
+    m_modelmain->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
+        int selected = m_modelmain->GetSelection();
+        if (selected != wxNOT_FOUND)
+            m_modelint->SetValue(((SortedChoiceItemModel*)m_modelmain->GetClientData(selected))->id);
+    });
+    m_panelmain->GetSizer()->SetMinSize(FromDIP(wxSize(340, 50)));
+    m_panelall->GetSizer()->SetMinSize(FromDIP(wxSize(340, 50)));
+    SetMinSize(FromDIP(wxSize(780, 360)));
+    Layout();
 }
 
-int SpellModelWindow::ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, uint16_t currentmodel, uint16_t currentmodelalt, bool alt) {
+int SpellModelWindow::ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, int currentmodel, int currentmodelalt, bool alt) {
 	int mainsel = -1, allsel = -1;
 	unsigned int i, j = 0;
 	if (ta == SPELL_TARGET_AMOUNT_VARIABLE) {
@@ -332,7 +353,7 @@ int SpellModelWindow::ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, ui
 		ta = SPELL_TARGET_AMOUNT_GROUP;
 	if (tt == SPELL_TARGET_TYPE_IRRELEVANT)
 		tt = SPELL_TARGET_TYPE_ANY;
-	uint16_t model = alt ? currentmodelalt : currentmodel;
+	int model = alt ? currentmodelalt : currentmodel;
 	m_modelmain->Clear();
 	for (i = 0; i < HADES_STRING_SPELL_MODEL.size(); i++) {
 		if (model == HADES_STRING_SPELL_MODEL[i].id)
@@ -348,8 +369,8 @@ int SpellModelWindow::ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, ui
 			}
 		}
 	}
-	m_modelall->SetSelection(max(0, allsel));
-	m_modelmain->SetSelection(max(0, mainsel));
+	m_modelall->SetSelection(allsel);
+	m_modelmain->SetSelection(mainsel);
 	m_modelint->SetValue(model);
 	if (mainsel >= 0) {
 		m_panelall->Show(false);
@@ -367,6 +388,9 @@ int SpellModelWindow::ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, ui
 		m_enableall->SetValue(true);
 	}
 	m_targetinfo->SetLabel(HADES_STRING_SPELL_TARGET_INFO_BASE + HADES_STRING_SPELL_TARGET_INFO[tt][ta]);
+	Layout();
+	Fit();
+	CentreOnParent();
 	return wxDialog::ShowModal();
 }
 
@@ -380,7 +404,7 @@ void SpellModelWindow::OnSpin(wxSpinEvent& event) {
 }
 
 void SpellModelWindow::OnChoice(wxCommandEvent& event) {
-	m_modelint->SetValue(HADES_STRING_SPELL_MODEL[m_modelall->GetSelection()].id);
+	if (m_modelall->GetSelection() != wxNOT_FOUND) m_modelint->SetValue(HADES_STRING_SPELL_MODEL[m_modelall->GetSelection()].id);
 }
 
 void SpellModelWindow::OnCheckBox(wxCommandEvent& event) {

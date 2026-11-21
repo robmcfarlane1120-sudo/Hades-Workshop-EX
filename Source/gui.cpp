@@ -10,6 +10,7 @@
 #include "Gui_TextEditor.h"
 
 #include "gui.h"
+#include <wx/stc/stc.h>
 
 static int ScaleUi(int value) {
 	return value < 0 ? value : (value * 505 + 200) / 400;
@@ -7794,7 +7795,7 @@ CDPanel::CDPanel( wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxS
 	bSizer15912->Fit( m_panelcil );
 	m_notebookmain->AddPage( m_panelcil, _("CIL Code"), false );
 
-	bSizer7->Add( m_notebookmain, 1, wxEXPAND | wxALL, 5 );
+	bSizer7->Add( m_notebookmain, 1, wxEXPAND, 0 );
 
 
 	this->SetSizer( bSizer7 );
@@ -13514,6 +13515,8 @@ TextExportWindow::TextExportWindow( wxWindow* parent, wxWindowID id, const wxStr
 
 	this->SetSizer( bSizer18 );
 	this->Layout();
+	GetSizer()->SetSizeHints(this);
+	Fit();
 
 	this->Centre( wxBOTH );
 
@@ -13647,7 +13650,7 @@ BatchExportWindow::BatchExportWindow( wxWindow* parent, wxWindowID id, const wxS
 	wxArrayString m_exportlistChoices;
 	m_exportlist = new wxCheckListBox( sbSizer2->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxSize( ScaleUi(230), ScaleUi(140) ), m_exportlistChoices, wxLB_HSCROLL|wxLB_SINGLE );
 	ScaleControlFont(m_exportlist);
-	sbSizer2->Add( m_exportlist, 0, wxALL|wxEXPAND, 5 );
+	sbSizer2->Add( m_exportlist, 1, wxALL|wxEXPAND, 5 );
 
 
 	gbSizer2->Add( sbSizer2, wxGBPosition( 2, 0 ), wxGBSpan( 1, 1 ), wxEXPAND, 5 );
@@ -16000,7 +16003,7 @@ ScriptEditWindow::ScriptEditWindow( wxWindow* parent, wxWindowID id, const wxStr
 	ScaleControlFont(m_localvartext);
 	fgSizer61->Add( m_localvartext, 0, wxALL|wxEXPAND, 5 );
 
-	m_scripttext = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxHSCROLL|wxTE_DONTWRAP|wxTE_MULTILINE|wxTE_PROCESS_ENTER|wxTE_RICH2|wxTE_NOHIDESEL );
+	m_scripttext = new wxStyledTextCtrl( this, wxID_ANY );
 	ScaleControlFont(m_scripttext);
 	fgSizer61->Add( m_scripttext, 0, wxALL|wxEXPAND, 5 );
 
@@ -16094,8 +16097,6 @@ ScriptEditWindow::ScriptEditWindow( wxWindow* parent, wxWindowID id, const wxStr
 	m_worldcoordchoice->Connect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( ScriptEditWindow::OnChoiceSelection ), NULL, this );
 	m_localvarshowimg->Connect( wxEVT_LEFT_DOWN, wxMouseEventHandler( ScriptEditWindow::OnShowHideLocalVar ), NULL, this );
 	m_staticText274->Connect( wxEVT_LEFT_DOWN, wxMouseEventHandler( ScriptEditWindow::OnShowHideLocalVar ), NULL, this );
-	m_scripttext->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( ScriptEditWindow::OnFunctionUpdate ), NULL, this );
-	m_scripttext->Connect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( ScriptEditWindow::OnFunctionNewLine ), NULL, this );
 	m_functionlistbutton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( ScriptEditWindow::OnButtonClick ), NULL, this );
 	m_buttoncancel->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( ScriptEditWindow::OnButtonClick ), NULL, this );
 	m_buttonparse->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( ScriptEditWindow::OnButtonClick ), NULL, this );
@@ -16125,8 +16126,6 @@ ScriptEditWindow::~ScriptEditWindow()
 	m_worldcoordchoice->Disconnect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( ScriptEditWindow::OnChoiceSelection ), NULL, this );
 	m_localvarshowimg->Disconnect( wxEVT_LEFT_DOWN, wxMouseEventHandler( ScriptEditWindow::OnShowHideLocalVar ), NULL, this );
 	m_staticText274->Disconnect( wxEVT_LEFT_DOWN, wxMouseEventHandler( ScriptEditWindow::OnShowHideLocalVar ), NULL, this );
-	m_scripttext->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( ScriptEditWindow::OnFunctionUpdate ), NULL, this );
-	m_scripttext->Disconnect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( ScriptEditWindow::OnFunctionNewLine ), NULL, this );
 	m_functionlistbutton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( ScriptEditWindow::OnButtonClick ), NULL, this );
 	m_buttoncancel->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( ScriptEditWindow::OnButtonClick ), NULL, this );
 	m_buttonparse->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( ScriptEditWindow::OnButtonClick ), NULL, this );

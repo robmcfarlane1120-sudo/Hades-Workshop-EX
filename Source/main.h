@@ -215,6 +215,7 @@ public:
 	unsigned int CDPanelAmount;
 	wxFileName SteamSaveDir;
 	
+	void ImportBatch();
 	void MarkDataModified(); // Mark the selected CD in the cdnotebook as modified
 	void PreferencesUpdate(); // Read and apply configurations from PreferenceWindow
 	void UpdateMenuAvailability(int panel = wxNOT_FOUND);

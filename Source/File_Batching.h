@@ -65,6 +65,7 @@ public:
 	BatchImportDialog(wxWindow* p);
 	~BatchImportDialog();
 	int ShowModal(int type, SaveSet* datas, bool isjapan);
+	static wxString DefaultDirectory();
 
 	static LogStruct ImportText(SaveSet* dataset, set<int>& sectionmodified, wxString filetext, bool adjustsize = true, bool isjapan = false, bool fatalwarning = false);
 	static LogStruct ImportScript(SaveSet* dataset, set<int>& sectionmodified, int scripttype, wxString filescript, bool fatalwarning = false, bool* datamodif = NULL, vector<ScriptDataStruct*>* modifiedscripts = NULL);

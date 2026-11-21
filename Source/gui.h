@@ -16,6 +16,8 @@ class PreviewTextCtrl;
 
 #include <wx/string.h>
 #include <wx/textctrl.h>
+
+class wxStyledTextCtrl;
 #include <wx/gdicmn.h>
 #include <wx/font.h>
 #include <wx/colour.h>
@@ -2798,7 +2800,7 @@ class SaveSteamWindow : public wxDialog
 		wxChoice* m_dllformat;
 		wxChoice* m_assetformat;
 
-		SaveSteamWindow( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Create Steam Mod..."), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE );
+		SaveSteamWindow( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Create Steam Mod..."), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER );
 
 		~SaveSteamWindow();
 
@@ -3140,7 +3142,7 @@ class TextExportWindow : public wxDialog
 		wxTextCtrl* m_textheader;
 		wxTextCtrl* m_textseparator;
 
-		TextExportWindow( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Export Text"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 275,340 ), long style = wxDEFAULT_DIALOG_STYLE );
+		TextExportWindow( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Export Text"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 275,340 ), long style = wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER );
 
 		~TextExportWindow();
 
@@ -3179,7 +3181,7 @@ class BatchExportWindow : public wxDialog
 		wxCheckBox* m_exportorder;
 		wxCheckBox* m_exportbgx;
 
-		BatchExportWindow( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Export Data"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 275,375 ), long style = wxDEFAULT_DIALOG_STYLE );
+		BatchExportWindow( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Export Data"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 275,375 ), long style = wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER );
 
 		~BatchExportWindow();
 
@@ -3771,7 +3773,7 @@ class ScriptEditWindow : public wxDialog
 		wxStaticBitmap* m_localvarshowimg;
 		wxStaticText* m_staticText274;
 		wxTextCtrl* m_localvartext;
-		wxTextCtrl* m_scripttext;
+		wxStyledTextCtrl* m_scripttext;
 		wxButton* m_functionlistbutton;
 		wxStaticText* m_staticText197;
 		wxScrolledWindow* m_argpanel;
