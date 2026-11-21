@@ -321,6 +321,9 @@ SpellModelWindow::SpellModelWindow(wxWindow* parent) : SpellAnimationWindow(pare
         m_modelall->Append(model.label, (void*)&model);
     m_panelall->GetSizer()->Detach(m_modelint);
     m_modelint->Reparent(this);
+    m_modelint->Show();
+    m_modelint->InvalidateBestSize();
+    m_modelint->SetMinSize(FromDIP(wxSize(220, 36)));
     auto* idRow = new wxBoxSizer(wxHORIZONTAL);
     idRow->Add(new wxStaticText(this, wxID_ANY, _("Animation ID")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
     idRow->Add(m_modelint, 1, wxEXPAND);
@@ -331,7 +334,10 @@ SpellModelWindow::SpellModelWindow(wxWindow* parent) : SpellAnimationWindow(pare
         if (selected != wxNOT_FOUND)
             m_modelint->SetValue(((SortedChoiceItemModel*)m_modelmain->GetClientData(selected))->id);
     });
-    SetMinSize(FromDIP(wxSize(620, 260)));
+    m_panelmain->GetSizer()->SetMinSize(FromDIP(wxSize(340, 50)));
+    m_panelall->GetSizer()->SetMinSize(FromDIP(wxSize(340, 50)));
+    SetMinSize(FromDIP(wxSize(780, 360)));
+    Layout();
 }
 
 int SpellModelWindow::ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, int currentmodel, int currentmodelalt, bool alt) {

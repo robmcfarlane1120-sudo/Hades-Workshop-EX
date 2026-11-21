@@ -1,6 +1,7 @@
 #include <wx/textdlg.h>
 #include <wx/filepicker.h>
 #include <wx/checklst.h>
+#include <wx/scrolwin.h>
 #include <wx/dir.h>
 #include <wx/dirdlg.h>
 #include <wx/stdpaths.h>
@@ -16,6 +17,8 @@
 #include <iomanip>
 #include <wx/textdlg.h>
 #include <wx/gbsizer.h>
+#include <wx/dcbuffer.h>
+#include <commctrl.h>
 #include <wx/mstream.h>
 #include <wx/wfstream.h>
 #include <wx/filedlg.h>
@@ -873,11 +876,9 @@ int IOHWSMessage::ShowModal(bool* sct, bool* scttxt, bool* scton) {
 		m_buttonok->SetLabel(_(HADES_STRING_HWS_OPEN_CONFIRM));
 		UpdateLoadableSection();
 	}
-	if (!save) {
-		m_buttonok->SetDefault();
-		if (m_buttonok->IsEnabled())
-			m_buttonok->SetFocus();
-	}
+    m_buttonok->SetDefault();
+    if (m_buttonok->IsEnabled())
+        m_buttonok->SetFocus();
 	int res = IOHWSWindow::ShowModal();
 	for (i = 0; i < DATA_SECTION_AMOUNT; i++) {
 		section[i] = section_box[i]->GetValue();
@@ -7164,25 +7165,27 @@ void CDDataStruct::OnTextCharmapPaint(wxPaintEvent &event) {
 #define MACRO_FIELD_DISPLAY_BACKGROUND(FIELDID, BGID) \
 	wxBitmap bmp; \
 	auto* previewAddition = fieldset.addition[FIELDID]; \
+	auto* previewBackground = fieldset.background_data[FIELDID]; \
+	const int previewCamera = (BGID); \
+	const bool validPreviewCamera = previewBackground && previewCamera >= 0 && previewCamera < previewBackground->camera_amount && previewBackground->camera[previewCamera].width > 0 && previewBackground->camera[previewCamera].height > 0; \
 	if (previewAddition && !previewAddition->preview_png.empty()) { \
 		wxMemoryInputStream png(previewAddition->preview_png.data(), previewAddition->preview_png.size()); \
 		wxImage image(png, wxBITMAP_TYPE_PNG); \
-		if (image.IsOk()) \
-			bmp = wxBitmap(image.Scale(fieldset.background_data[FIELDID]->camera[BGID].width, fieldset.background_data[FIELDID]->camera[BGID].height, wxIMAGE_QUALITY_HIGH)); \
+		if (image.IsOk()) { \
+			if (validPreviewCamera) \
+				image = image.Scale(previewBackground->camera[previewCamera].width, previewBackground->camera[previewCamera].height, wxIMAGE_QUALITY_HIGH); \
+			bmp = wxBitmap(image); \
+		} \
 	} \
-	if (!bmp.IsOk()) { \
-		uint32_t* imgdata = fieldset.background_data[FIELDID]->ConvertAsImageAccurate(BGID); \
-		bmp = wxBitmap(ConvertDataToImage(imgdata, fieldset.background_data[FIELDID]->camera[BGID].width, fieldset.background_data[FIELDID]->camera[BGID].height)); \
+	if (!bmp.IsOk() && validPreviewCamera) { \
+		uint32_t* imgdata = previewBackground->ConvertAsImageAccurate(previewCamera); \
+		if (imgdata) \
+			bmp = wxBitmap(ConvertDataToImage(imgdata, previewBackground->camera[previewCamera].width, previewBackground->camera[previewCamera].height)); \
 		delete[] imgdata; \
 	} \
-	if (bmp.IsOk()) { \
-		m_fieldtexturepreview->SetVirtualSize(bmp.GetWidth(), bmp.GetHeight()); \
-		wxClientDC dc(m_fieldtexturepreview); \
-		dc.Clear(); \
-		m_fieldtexturepreview->DoPrepareDC(dc); \
-		dc.DrawBitmap(bmp, 0, 0); \
-		fieldtexpreview = bmp; \
-	}
+	fieldtexpreview = bmp; \
+	m_fieldtexturepreview->SetVirtualSize(bmp.IsOk() ? bmp.GetWidth() : 0, bmp.IsOk() ? bmp.GetHeight() : 0); \
+	m_fieldtexturepreview->Refresh();
 
 void CDDataStruct::DisplayField(int fieldid) {
 	unsigned int* sortid = (unsigned int*)m_fieldlist->GetClientData(fieldid);
@@ -7225,14 +7228,11 @@ void CDDataStruct::DisplayField(int fieldid) {
 			buffer << "Background " << i + 1 << ends;
 			m_fieldtexturechoice->Append(_(buffer.str()));
 		}
-		m_fieldtexturechoice->SetSelection(0);
-		MACRO_FIELD_DISPLAY_BACKGROUND(fieldselection, 0)
-	} else {
-		wxClientDC dc(m_fieldtexturepreview);
-		dc.Clear();
-		m_fieldtexturepreview->DoPrepareDC(dc);
-		fieldtexpreview = wxNullBitmap;
+		if (m_fieldtexturechoice->GetCount() > 0)
+			m_fieldtexturechoice->SetSelection(0);
 	}
+	m_fieldtexturepreview->Scroll(0, 0);
+	MACRO_FIELD_DISPLAY_BACKGROUND(fieldselection, m_fieldtexturechoice->GetSelection())
 	m_fieldeditwalk->Enable(fieldset.walkmesh[fieldselection] != NULL);
 	m_fieldexportwalk->Enable(fieldset.walkmesh[fieldselection] != NULL);
 	m_fieldimportwalk->Enable(fieldset.walkmesh[fieldselection] != NULL);
@@ -7417,17 +7417,142 @@ bool ExportPreparedFieldFiles(wxWindow* parent, const wxString& stage, const wxS
     return written == files.size();
 }
 
-void AddSelectionButtons(wxDialog& dialog, wxBoxSizer* layout, wxCheckListBox* list) {
+
+// Shared file selector for field creation and asset export. Group checkboxes
+// propagate to their children; partial selections are shown as indeterminate.
+class FieldAssetTree : public wxScrolledWindow {
+public:
+    struct Group {
+        wxPanel* panel;
+        wxPanel* children;
+        wxCheckBox* check;
+        wxButton* toggle;
+        wxBoxSizer* rows;
+        bool expanded = false;
+    };
+    struct Leaf { int group; wxString key; wxCheckBox* check; };
+    vector<Leaf> leaves;
+    Group* groups[7] = {};
+    wxBoxSizer* rows;
+    std::function<void(int)> changed;
+    FieldAssetTree(wxWindow* parent, const wxSize& size)
+        : wxScrolledWindow(parent, wxID_ANY, wxDefaultPosition, size, wxVSCROLL | wxHSCROLL | wxBORDER_SIMPLE) {
+        rows = new wxBoxSizer(wxVERTICAL);
+        SetSizer(rows);
+        SetScrollRate(FromDIP(12), FromDIP(12));
+        SetMinSize(size);
+    }
+    ~FieldAssetTree() { for (auto* group : groups) delete group; }
+    void Reflow() { Layout(); FitInside(); Refresh(); }
+    void Reset() {
+        leaves.clear();
+        rows->Clear(true);
+        for (auto*& group : groups) { delete group; group = nullptr; }
+        Reflow();
+    }
+    void UpdateGroup(int group) {
+        int total = 0, checked = 0;
+        for (const auto& leaf : leaves) if (leaf.group == group) { ++total; if (leaf.check->GetValue()) ++checked; }
+        groups[group]->check->Set3StateValue(checked == 0 ? wxCHK_UNCHECKED : checked == total ? wxCHK_CHECKED : wxCHK_UNDETERMINED);
+    }
+    void Add(int group, const wxString& key, const wxString& label, bool checked) {
+        static const char* names[] = {"Walkmesh (BGI)", "Background data (BGX)",
+            "Background textures (PNG)", "Camera data (inside BGX)",
+            "Field scripts (stored in project)", "Other field data / SPS files",
+            "MapConfig lighting / character settings"};
+        if (!groups[group]) {
+            auto* g = groups[group] = new Group;
+            g->panel = new wxPanel(this, wxID_ANY);
+            auto* outer = new wxBoxSizer(wxVERTICAL);
+            auto* header = new wxBoxSizer(wxHORIZONTAL);
+            g->toggle = new wxButton(g->panel, wxID_ANY, ">", wxDefaultPosition, FromDIP(wxSize(28, 28)), wxBU_EXACTFIT);
+            g->toggle->SetToolTip("Expand or collapse files");
+            g->check = new wxCheckBox(g->panel, wxID_ANY, names[group], wxDefaultPosition, wxDefaultSize, wxCHK_3STATE);
+            header->Add(g->toggle, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(6));
+            header->Add(g->check, 1, wxALIGN_CENTER_VERTICAL);
+            outer->Add(header, 0, wxEXPAND | wxALL, FromDIP(4));
+            g->children = new wxPanel(g->panel, wxID_ANY);
+            g->rows = new wxBoxSizer(wxVERTICAL);
+            g->children->SetSizer(g->rows);
+            g->children->Hide();
+            outer->Add(g->children, 0, wxEXPAND | wxLEFT | wxBOTTOM, FromDIP(36));
+            g->panel->SetSizer(outer);
+            rows->Add(g->panel, 0, wxEXPAND);
+            g->toggle->Bind(wxEVT_BUTTON, [this, g](wxCommandEvent&) { if (g->expanded) Collapse(g); else Expand(g); });
+            g->check->Bind(wxEVT_CHECKBOX, [this, group](wxCommandEvent&) {
+                Check(group, groups[group]->check->Get3StateValue() != wxCHK_UNCHECKED);
+                if (changed) changed(group);
+            });
+        }
+        auto* g = groups[group];
+        auto* check = new wxCheckBox(g->children, wxID_ANY, label);
+        check->SetValue(checked);
+        g->rows->Add(check, 0, wxALL, FromDIP(4));
+        leaves.push_back({group, key, check});
+        check->Bind(wxEVT_CHECKBOX, [this, group](wxCommandEvent&) { UpdateGroup(group); if (changed) changed(group); });
+        UpdateGroup(group);
+        Reflow();
+    }
+    void Expand(Group* group) {
+        group->expanded = true; group->children->Show(); group->toggle->SetLabel("v");
+        group->panel->Layout(); Reflow();
+    }
+    void Collapse(Group* group) {
+        group->expanded = false; group->children->Hide(); group->toggle->SetLabel(">");
+        group->panel->Layout(); Reflow();
+    }
+    bool IsChecked(int group) const {
+        return groups[group] && groups[group]->check->Get3StateValue() != wxCHK_UNCHECKED;
+    }
+    void Check(int group, bool check = true) {
+        if (!groups[group]) return;
+        for (const auto& leaf : leaves) if (leaf.group == group) leaf.check->SetValue(check);
+        UpdateGroup(group);
+    }
+    bool FileChecked(int group, const wxString& key) const {
+        for (const auto& leaf : leaves)
+            if (leaf.group == group && leaf.key == key && leaf.check->GetValue()) return true;
+        return false;
+    }
+    wxArrayString SelectedFiles() const {
+        wxArrayString result;
+        for (const auto& leaf : leaves) if (leaf.check->GetValue()) result.Add(leaf.key);
+        return result;
+    }
+    void SelectAll(bool check) {
+        for (int i = 0; i < 7; ++i) Check(i, check);
+        if (changed) changed(-1);
+    }
+};
+
+int FieldAssetGroup(const wxString& file) {
+    const wxString lower = file.Lower();
+    if (lower.EndsWith(".bgi.bytes")) return 0;
+    if (lower.EndsWith(".bgx")) return 1;
+    if (lower.EndsWith(".png")) return 2;
+    if (lower.Contains("mapconfigdata")) return 6;
+    return 5;
+}
+
+void AddSelectionButtons(wxDialog& dialog, wxBoxSizer* layout, FieldAssetTree* list) {
     auto* row = new wxBoxSizer(wxHORIZONTAL);
     for (int value = 1; value >= 0; --value) {
         auto* button = new wxButton(&dialog, wxID_ANY, value ? "Select All" : "Deselect All");
-        button->Bind(wxEVT_BUTTON, [list, value](wxCommandEvent&) {
-            for (unsigned int i = 0; i < list->GetCount(); ++i) list->Check(i, value != 0);
+        button->Bind(wxEVT_BUTTON, [list, value](wxCommandEvent&) { list->SelectAll(value != 0); });
+        row->Add(button, 0, wxALL, 5);
+    }
+    for (int expand = 1; expand >= 0; --expand) {
+        auto* button = new wxButton(&dialog, wxID_ANY, expand ? "Expand All" : "Collapse All");
+        button->Bind(wxEVT_BUTTON, [list, expand](wxCommandEvent&) {
+            for (auto* group : list->groups) if (group) {
+                if (expand) list->Expand(group); else list->Collapse(group);
+            }
         });
         row->Add(button, 0, wxALL, 5);
     }
     layout->Add(row);
 }
+
 }
 
 void CDDataStruct::OnFieldRightClick(wxMouseEvent& event) {
@@ -7489,11 +7614,10 @@ void CDDataStruct::ExportSelectedFieldAssets() {
     auto* layout = new wxBoxSizer(wxVERTICAL);
     auto* note = new wxStaticText(&dialog, wxID_ANY, "Select assets to export from this field. BGX includes cameras; MapConfigData contains character lighting. Only checked files will be written.");
     note->Wrap(dialog.FromDIP(860)); layout->Add(note, 0, wxALL, 10);
-    auto* list = new wxCheckListBox(&dialog, wxID_ANY, wxDefaultPosition, dialog.FromDIP(wxSize(960, 380)));
-    wxArrayString relative;
+    auto* list = new FieldAssetTree(&dialog, dialog.FromDIP(wxSize(960, 380)));
     for (const auto& file : files) {
         wxFileName name(file); name.MakeRelativeTo(stage.path);
-        relative.Add(name.GetFullPath()); list->Append(name.GetFullPath());
+        list->Add(FieldAssetGroup(file), file, name.GetFullPath(), false);
     }
     layout->Add(list, 1, wxEXPAND | wxALL, 10);
     AddSelectionButtons(dialog, layout, list);
@@ -7504,14 +7628,12 @@ void CDDataStruct::ExportSelectedFieldAssets() {
     dialog.FindWindow(wxID_OK)->SetLabel("Export Selected");
     dialog.SetSizerAndFit(layout);
     dialog.Bind(wxEVT_BUTTON, [&](wxCommandEvent&) {
-        wxArrayInt checked; list->GetCheckedItems(checked);
-        if (checked.empty()) { wxMessageBox("Select at least one asset to export.", "Export Assets", wxOK, &dialog); return; }
+        const wxArrayString selectedFiles = list->SelectedFiles();
+        if (selectedFiles.empty()) { wxMessageBox("Select at least one asset to export.", "Export Assets", wxOK, &dialog); return; }
         if (destination->GetPath().empty() || !wxFileName(destination->GetPath(), wxEmptyString).IsAbsolute()) {
             wxMessageBox("Choose an absolute export folder path.", "Export Assets", wxOK, &dialog); return;
         }
         fieldAssetExportFolder = destination->GetPath();
-        wxArrayString selectedFiles;
-        for (int i : checked) selectedFiles.Add(files[i]);
         if (!ExportPreparedFieldFiles(&dialog, stage.path, fieldAssetExportFolder, selectedFiles)) return;
         dialog.EndModal(wxID_OK);
     }, wxID_OK);
@@ -7537,9 +7659,7 @@ void CDDataStruct::CreateFieldFromSelection() {
     int nextid = 6000; while (fieldset.GetIndexById(nextid) >= 0) ++nextid;
     auto* id = new wxTextCtrl(&dialog, wxID_ANY, wxString::Format("%d", nextid));
     layout->Add(id, 0, wxEXPAND | wxALL, 10);
-    auto* list = new wxCheckListBox(&dialog, wxID_ANY, wxDefaultPosition, dialog.FromDIP(wxSize(860, 260)));
-    const char* labels[] = { "Walkmesh (BGI)", "Background data (BGX)", "Background textures (PNG)", "Camera data", "Field scripts", "Other field data (background lighting and SPS pool)", "MapConfig lighting / character settings" };
-    for (auto label : labels) { list->Append(label); list->Check(list->GetCount() - 1); }
+    auto* list = new FieldAssetTree(&dialog, dialog.FromDIP(wxSize(860, 260)));
     layout->Add(list, 1, wxEXPAND | wxALL, 10);
     AddSelectionButtons(dialog, layout, list);
     layout->Add(new wxStaticText(&dialog, wxID_ANY, "Script setup"), 0, wxLEFT, 10);
@@ -7550,11 +7670,53 @@ void CDDataStruct::CreateFieldFromSelection() {
     scriptSetup->SetSelection(0);
     layout->Add(scriptSetup, 0, wxEXPAND | wxALL, 10);
     scriptSetup->Bind(wxEVT_CHOICE, [list, scriptSetup](wxCommandEvent&) { list->Check(4, scriptSetup->GetSelection() != 2); });
-    list->Bind(wxEVT_CHECKLISTBOX, [list, scriptSetup](wxCommandEvent& event) {
-        if (event.GetInt() == 4) scriptSetup->SetSelection(list->IsChecked(4) ? 0 : 2);
-    });
+    list->changed = [list, scriptSetup](int group) {
+        if (group == 4 || group == -1) {
+            if (!list->IsChecked(4)) scriptSetup->SetSelection(2);
+            else if (scriptSetup->GetSelection() == 2) scriptSetup->SetSelection(0);
+        }
+    };
+    const auto populateFiles = [this, list, donorChoice, donorIndices, scriptSetup]() {
+        list->Freeze(); list->Reset();
+        const int selection = donorChoice->GetSelection();
+        if (selection == wxNOT_FOUND) { list->Thaw(); return; }
+        const int donor = donorIndices[selection];
+        const auto* addition = fieldset.addition[donor];
+        const wxString map = addition
+            ? wxString::Format("FBG_N%02u_", static_cast<unsigned>(addition->area_id)) + wxString(addition->map_id)
+            : wxString::FromUTF8(SteamFieldScript[donor].background_name);
+        const wxString field = addition ? "EVT_" + wxString(addition->field_id)
+            : wxString::FromUTF8(SteamFieldScript[donor].script_name);
+        if (fieldset.walkmesh[donor]) list->Add(0, "walkmesh", map + ".bgi.bytes", true);
+        const auto* bg = fieldset.background_data[donor];
+        if (bg) {
+            list->Add(1, "background", map + ".bgx", true);
+            for (unsigned int i = 0; i < bg->tiles_amount; ++i) {
+                const wxString name = wxString::Format("Background_%u.png", i);
+                const wxString source = bg->IsBGXFormat() ? wxFileName(bg->tiles[i].memoria_bgx_path).GetFullName() : name;
+                if (!source.empty()) list->Add(2, name, source == name ? name : source + "  ->  " + name, true);
+            }
+            list->Add(3, "cameras", map + ".bgx (camera records, shared file)", true);
+            list->Add(5, "lighting", "Background lighting (embedded project data)", true);
+        }
+        list->Add(4, "scripts", field + ".eb.bytes (language variants; normal mod export)", scriptSetup->GetSelection() != 2);
+        if (fieldset.role[donor]) list->Add(6, "roles", field + ".bytes (MapConfigData)", true);
+        const int pool = addition ? addition->sps_pool : fieldset.GetIdByIndex(donor);
+        const int poolIndex = fieldset.GetIndexById(pool);
+        if (poolIndex >= 0 && poolIndex < config.field_amount && config.field_file_id[poolIndex] > 0) {
+            if (config.field_spt_file[poolIndex] >= 0) list->Add(5, "spt.tcb.bytes", "spt.tcb.bytes (SPS texture bank)", true);
+            for (unsigned int i = 0; i < SteamFieldScript[poolIndex].sps_list.size(); ++i) {
+                if (config.field_sps_file[poolIndex][i] < 0) continue;
+                const wxString name = wxString::Format("%u.sps.bytes", static_cast<unsigned>(SteamFieldScript[poolIndex].sps_list[i]));
+                list->Add(5, name, name, true);
+            }
+        }
+        list->Thaw();
+    };
+    donorChoice->Bind(wxEVT_CHOICE, [populateFiles](wxCommandEvent&) { populateFiles(); });
+    populateFiles();
 
-    auto* note = new wxStaticText(&dialog, wxID_ANY, "BGI and background data require matching donor cameras. PNG requires background data.\nUnchecked components start empty; a camera-only field is supported.\nClean template: Zidane + 6 inactive objects + 3 disabled exits + effects setup. Set spawn and exits before playing.\nTexture copies are stored independently beside HWS in FieldAssets/<new ID>.");
+    auto* note = new wxStaticText(&dialog, wxID_ANY, "BGI and background data require matching donor cameras. PNG requires background data.\nUnchecked components start empty; a camera-only field is supported.\nClean template: Zidane + 6 inactive objects + 3 disabled exits + effects setup. Set spawn and exits before playing.\nExpand categories to select files. Camera/lighting records are embedded, not separate files.\nTexture selections are saved in the new field; SPS file selections apply to this export.");
     note->Wrap(dialog.FromDIP(860)); layout->Add(note, 0, wxALL, 10);
     auto* exportNow = new wxCheckBox(&dialog, wxID_ANY, "Export selected visual assets when creating the field");
     exportNow->SetValue(true);
@@ -7586,6 +7748,16 @@ void CDDataStruct::CreateFieldFromSelection() {
         }
         if (list->IsChecked(2) && !list->IsChecked(1)) {
             wxMessageBox("Select Background data with PNG textures to retain their overlay mapping.", "Asset Dependencies", wxOK, &dialog); return;
+        }
+        bool hasBank = false, selectedSps = false;
+        for (const auto& leaf : list->leaves) {
+            if (leaf.group != 5) continue;
+            if (leaf.key == "spt.tcb.bytes") hasBank = true;
+            if (leaf.key.EndsWith(".sps.bytes") && list->FileChecked(5, leaf.key)) selectedSps = true;
+        }
+        if (exportNow->GetValue() && selectedSps && hasBank && !list->FileChecked(5, "spt.tcb.bytes")) {
+            wxMessageBox("Select spt.tcb.bytes with the SPS files so the new field has their texture bank.", "Asset Dependencies", wxOK, &dialog);
+            return;
         }
         const wxString textureBase = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath() + "\\FieldAssets\\" + wxString::Format("%ld", newid);
         wxString textures = textureBase;
@@ -7638,13 +7810,19 @@ void CDDataStruct::CreateFieldFromSelection() {
                     for (unsigned int t = 0; t < bg->tiles.size(); ++t) {
                         auto& tile = bg->tiles[t];
                         if (tile.memoria_bgx_path.empty()) continue;
-                        wxString target = textures + wxString::Format("\\Background_%u.png", t);
+                        const wxString filename = wxString::Format("Background_%u.png", t);
+                        if (!list->FileChecked(2, filename)) { tile.memoria_bgx_path.clear(); continue; }
+                        wxString target = textures + "\\" + filename;
+                        // Independent output names avoid collisions between donor folders.
                         if (!wxCopyFile(tile.memoria_bgx_path, target, false)) { copied = false; break; }
                         tile.memoria_bgx_path = target;
                     }
                     if (!copied) { fieldset.DeleteCustomField(added); wxMessageBox("Texture copy failed; the new field was not registered.", "Create New Field", wxOK | wxICON_ERROR, &dialog); return; }
                 }
-                if (!list->IsChecked(2)) for (auto& tile : bg->tiles) tile.memoria_bgx_path.clear();
+                for (auto& tile : bg->tiles) {
+                    if (!tile.memoria_bgx_path.empty() && !list->FileChecked(2, wxFileName(tile.memoria_bgx_path).GetFullName()))
+                        tile.memoria_bgx_path.clear();
+                }
             } else {
                 bg->tiles.clear(); bg->tiles_amount = 0; bg->title_tile_amount = 0;
                 bg->anim.clear(); bg->anim_amount = 0;
@@ -7654,7 +7832,7 @@ void CDDataStruct::CreateFieldFromSelection() {
                 auto& camera = bg->camera[0];
                 for (int j = 0; j < 9; ++j) camera.matrix[j] = (j % 4 == 0) ? 4096 : 0;
             }
-            if (!list->IsChecked(5)) { bg->light.clear(); bg->light_amount = 0; }
+            if (!list->FileChecked(5, "lighting")) { bg->light.clear(); bg->light_amount = 0; }
             bg->SetupDataInfos(false); bg->SetupDataInfos(true);
             FieldAssetStage sizing;
             std::fstream serialized((sizing.path + "\\background.bytes").ToStdString(), std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
@@ -7717,9 +7895,9 @@ void CDDataStruct::CreateFieldFromSelection() {
                 const wxString lower = file.Lower();
                 if ((lower.EndsWith(".bgi.bytes") && list->IsChecked(0)) ||
                     (lower.EndsWith(".bgx") && (list->IsChecked(1) || list->IsChecked(3))) ||
-                    (lower.EndsWith(".png") && list->IsChecked(2)) ||
+                    (lower.EndsWith(".png") && list->FileChecked(2, wxFileName(file).GetFullName())) ||
                     (lower.Contains("mapconfigdata") && lower.EndsWith(".bytes") && list->IsChecked(6)) ||
-                    ((lower.EndsWith(".sps.bytes") || lower.EndsWith(".tcb.bytes")) && list->IsChecked(5))) selectedFiles.Add(file);
+                    ((lower.EndsWith(".sps.bytes") || lower.EndsWith(".tcb.bytes")) && list->FileChecked(5, wxFileName(file).GetFullName()))) selectedFiles.Add(file);
             }
             selectedFiles.Sort();
             if (error || !ExportPreparedFieldFiles(&dialog, stage.path, fieldAssetExportFolder, selectedFiles))
@@ -7976,8 +8154,10 @@ walkbmp.SaveFile(_(L"aaaa.bmp"),wxBITMAP_TYPE_BMP);*/
 }
 
 void CDDataStruct::OnFieldTexturePaint(wxPaintEvent &event) {
+	wxPaintDC dc(m_fieldtexturepreview);
+	dc.SetBackground(wxBrush(wxColour(25, 25, 25)));
+	dc.Clear();
 	if (fieldtexpreview.IsOk()) {
-		wxPaintDC dc(m_fieldtexturepreview);
 		m_fieldtexturepreview->DoPrepareDC(dc);
 		dc.DrawBitmap(fieldtexpreview,0,0);
 	}
@@ -10228,7 +10408,19 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
         actions->Add(button, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(3));
     }
     actionPanel->SetSizer(actions);
-    const auto layoutActions = [this, actionPanel, actions]() {
+    auto* emblem = new wxPanel(m_notebookmain, wxID_ANY);
+    emblem->SetBackgroundStyle(wxBG_STYLE_PAINT);
+    emblem->SetToolTip(_("Cheddar's Workshop"));
+    const wxImage emblemImage = wxBitmap(wxIcon("hadesworkshop_icon", wxBITMAP_TYPE_ICO_RESOURCE, 256, 256)).ConvertToImage();
+    emblem->Bind(wxEVT_PAINT, [emblem, emblemImage](wxPaintEvent&) {
+        wxAutoBufferedPaintDC dc(emblem);
+        dc.SetBackground(wxBrush(emblem->GetParent()->GetBackgroundColour()));
+        dc.Clear();
+        const wxSize size = emblem->GetClientSize();
+        if (emblemImage.IsOk() && size.x > 0 && size.y > 0)
+            dc.DrawBitmap(wxBitmap(emblemImage.Scale(size.x, size.y, wxIMAGE_QUALITY_HIGH)), 0, 0, true);
+    });
+    const auto layoutActions = [this, actionPanel, actions, emblem]() {
         const wxSize size = m_notebookmain->GetClientSize();
         const int headerHeight = m_notebookmain->GetPageCount() ?
             m_notebookmain->GetPage(0)->GetPosition().y : FromDIP(32);
@@ -10237,6 +10429,20 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
             width, wxMax(FromDIP(24), headerHeight - FromDIP(2)));
         actionPanel->Layout();
         actionPanel->Raise();
+        // Use native tab bounds so the logo never covers labels or lower tabs.
+        RECT lastTab = {};
+        const int count = static_cast<int>(m_notebookmain->GetPageCount());
+        const bool haveTab = count > 0 && SendMessage((HWND)m_notebookmain->GetHandle(),
+            TCM_GETITEMRECT, count - 1, (LPARAM)&lastTab);
+        const int left = haveTab ? lastTab.right + FromDIP(8) : size.x;
+        const int right = actionPanel->GetPosition().x - FromDIP(8);
+        const int side = wxMin(headerHeight - FromDIP(4), right - left);
+        emblem->Show(side > 0);
+        if (side > 0) {
+            emblem->SetSize(left + (right - left - side) / 2, FromDIP(1), side, side);
+            emblem->Raise();
+            emblem->Refresh();
+        }
     };
     m_notebookmain->Bind(wxEVT_SIZE, [layoutActions](wxSizeEvent& event) {
         event.Skip();
@@ -10305,8 +10511,6 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
 				return;
 			unsigned int field = *static_cast<unsigned int*>(m_fieldlist->GetClientData(selected));
 			int camera = m_fieldtexturechoice->GetSelection();
-			if (camera == wxNOT_FOUND || !fieldset.background_data[field])
-				return;
 			wxFileDialog picker(this, _("Choose a field preview PNG"), wxEmptyString, wxEmptyString, _("PNG images (*.png)|*.png"), wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 			if (picker.ShowModal() != wxID_OK)
 				return;

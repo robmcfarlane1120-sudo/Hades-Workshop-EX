@@ -1,4 +1,4 @@
-﻿#include "Tool_Randomizer.h"
+#include "Tool_Randomizer.h"
 
 #include <random>
 #include <wx/arrstr.h>
@@ -505,7 +505,19 @@ ToolRandomizer::~ToolRandomizer() {
 
 int ToolRandomizer::ShowModal(CDDataStruct* data) {
 	cddata = data;
-	UpdateMenuAvailability();
+    UpdateMenuAvailability();
+    // Fit every page, including the wider hidden tabs, before opening.
+    wxSize content(0, 0);
+    for (auto* page : {m_panelchar, m_panelweap, m_panelarmor, m_panelbattle, m_panelcard}) {
+        page->Layout();
+        const wxSize needed = page->GetSizer()->CalcMin();
+        content.x = wxMax(content.x, needed.x);
+        content.y = wxMax(content.y, needed.y);
+    }
+    m_auinotebook5->SetMinSize(content + FromDIP(wxSize(32, 56)));
+    GetSizer()->Fit(this);
+    Layout();
+    CentreOnParent();
 	return RandomizerWindow::ShowModal();
 }
 

@@ -158,6 +158,8 @@ void MainFrame::DeleteFullDir(string dirname) {
 		dname.Rmdir(wxPATH_RMDIR_FULL);
 }
 
+static wxString SessionSettingsPath();
+
 MainFrame::MainFrame(wxWindow *parent) :
 	MainFrameBase(parent, wxID_ANY, "HWS Chedderbung Build"),
 	CDPanelAmount(0) {
@@ -173,6 +175,22 @@ MainFrame::MainFrame(wxWindow *parent) :
 	PreferencesDialog::LoadMainFrameConfig(this);
 	SetSteamLanguage(hades::CURRENT_STEAM_LANGUAGE);
 	LoadingDialogCreate(this);
+    // Defer loading until the frame and loading dialog are ready to paint.
+    CallAfter([this]() {
+        if (CDPanelAmount != 0) return;
+        wxFileConfig settings(wxEmptyString, wxEmptyString, SessionSettingsPath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+        const wxString previous = settings.Read("StartupGame", wxEmptyString);
+        if (previous.empty()) return;
+        const wxFileName game(previous);
+        if (game.GetExt().CmpNoCase("exe") == 0 && game.FileExists() && OpenGame(previous)) {
+            wxCommandEvent projectEvent;
+            OnOpenHWSClick(projectEvent);
+            return;
+        }
+        // A moved or unavailable installation can be selected again normally.
+        wxCommandEvent openEvent;
+        OnOpenClick(openEvent);
+    });
 }
 
 MainFrame::~MainFrame() {
@@ -347,16 +365,7 @@ bool MainFrame::OpenGame(const wxString& path) {
 			CDPanel[CDPanelAmount] = new CDDataStruct(m_cdbook, filename, config);
 			CDName[CDPanelAmount] = filename.substr(dirsep);
 		} else {
-			if (config.dll_usage == 1) {
-				wxMessageDialog popup(this, wxString::Format(wxT(HADES_STRING_OPEN_WARNING_DLL_USAGE), "x64/FF9_Data/Managed/Assembly-CSharp_Vanilla.dll"), HADES_STRING_WARNING, wxOK | wxSTAY_ON_TOP | wxCENTRE);
-				popup.ShowModal();
-			} else if (config.dll_usage == 2) {
-				wxMessageDialog popup(this, wxString::Format(wxT(HADES_STRING_OPEN_WARNING_DLL_USAGE), "x64/FF9_Data/Managed/Assembly-CSharp.bak"), HADES_STRING_WARNING, wxOK | wxSTAY_ON_TOP | wxCENTRE);
-				popup.ShowModal();
-			} else if (config.dll_usage == 3) {
-				wxMessageDialog popup(this, wxString::Format(wxT(HADES_STRING_OPEN_WARNING_DLL_USAGE), "Assembly-CSharp_Vanilla.dll"), HADES_STRING_WARNING, wxOK | wxSTAY_ON_TOP | wxCENTRE);
-				popup.ShowModal();
-			}
+			// A validated vanilla backup is the normal Memoria baseline; no modal notice.
 			CDPanel[CDPanelAmount] = new CDDataStruct(m_cdbook, filename.substr(0, dirsep), config);
 			CDName[CDPanelAmount] = HADES_STRING_OPEN_STEAM_DEFAULT;
 			SteamSaveDir = CDPanel[CDPanelAmount]->filename + _(HADES_STRING_STEAM_SAVE_DEFAULT);

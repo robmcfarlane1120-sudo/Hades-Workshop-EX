@@ -946,6 +946,8 @@ struct ModManagerClientData : public wxClientData {
 
 ToolModManager::ToolModManager(wxWindow* p) :
 	ModManagerWindow(p), cddata(nullptr) {
+	m_textCtrl55->SetMinSize(FromDIP(wxSize(480, 90)));
+	SetMinSize(FromDIP(wxSize(520, 550)));
 	auto* row = m_buttonok->GetContainingSizer();
 	const auto add = [&](const wxString& label, auto action) {
 		auto* button = new wxButton(this, wxID_ANY, label);
