@@ -98,6 +98,7 @@ public:
 	void WriteHWS(fstream& ffhws, UnusedSaveBackupPart& backup);
 	int GetIndexById(uint16_t blockid);
 	int AddCustomBlock(uint16_t id, const wstring& label);
+	bool RemoveCustomBlock(unsigned int index);
 };
 
 struct SpecialTextDataEntry {

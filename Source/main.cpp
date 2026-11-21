@@ -530,46 +530,24 @@ void MainFrame::OnSaveHWSClick(wxCommandEvent& event) {
 
 class SaveSteamDialog : public SaveSteamWindow {
 public:
-	SaveSteamDialog(wxWindow* parent) : SaveSteamWindow(parent) {
-		m_customFieldScriptsOnly = new wxCheckBox(this, wxID_ANY, _("Export custom field scripts only"));
-		m_customFieldScriptsOnly->SetFont(m_staticText399->GetFont());
-		m_customFieldScriptsOnly->SetMinSize(wxSize(-1, m_customFieldScriptsOnly->GetBestSize().y + FromDIP(10)));
-		m_staticText3051->SetForegroundColour(wxColour(90, 220, 240));
-		m_staticText3051->Wrap(FromDIP(520));
-		m_infotext->Wrap(FromDIP(520));
-		m_dirpicker->SetMinSize(FromDIP(wxSize(560, -1)));
-		m_customFieldScriptsOnly->SetToolTip(_("Raw Assets only. Export custom field scripts and registrations without replacing existing background, walkmesh, or SPS assets."));
-		wxSizer* options = m_infotext->GetContainingSizer();
-		options->Insert(3, m_customFieldScriptsOnly, 0, wxALL, 5);
-		m_assetformat->Bind(wxEVT_CHOICE, [this](wxCommandEvent& event) {
-			m_customFieldScriptsOnly->Enable(m_assetformat->GetSelection() == 1);
-			event.Skip();
-		});
-	}
-
-	bool CustomFieldScriptsOnly() const {
-		return m_assetformat->GetSelection() == 1 && m_customFieldScriptsOnly->GetValue();
-	}
-	int ShowModal() {
-		m_infotext->Hide();
-		m_showinfobtn->SetBitmap(wxBitmap(wxBITMAP(bulletright_image).ConvertToImage()));
-		m_customFieldScriptsOnly->Enable(m_assetformat->GetSelection() == 1);
-		Fit();
-		wxFileConfig settings(wxEmptyString, wxEmptyString, SessionSettingsPath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
-		bool scriptsOnly = false;
-		settings.Read("ExportCustomFieldScriptsOnly", &scriptsOnly, false);
-		m_customFieldScriptsOnly->SetValue(scriptsOnly);
-		m_buttonok->SetDefault();
-		m_buttonok->SetFocus();
-		int result = SaveSteamWindow::ShowModal();
-		settings.Write("ExportCustomFieldScriptsOnly", m_customFieldScriptsOnly->GetValue());
-		settings.Flush();
-		return result;
-	}
-
+	SaveSteamDialog(wxWindow* parent, CDDataStruct&) : SaveSteamWindow(parent) {
+        m_staticText3051->SetForegroundColour(wxColour(90, 220, 240));
+        m_staticText3051->Wrap(FromDIP(520));
+        m_infotext->SetLabel(m_infotext->GetLabel() + "\n\nField visual assets are not included in project exports. Use Fields > right-click > Export Assets to export them explicitly.");
+        m_infotext->Wrap(FromDIP(520));
+        m_dirpicker->SetMinSize(FromDIP(wxSize(560, -1)));
+    }
+    int ShowModal() {
+        m_infotext->Hide();
+        m_showinfobtn->SetBitmap(wxBitmap(wxBITMAP(bulletright_image).ConvertToImage()));
+        wxFileConfig settings(wxEmptyString, wxEmptyString, SessionSettingsPath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+        settings.DeleteEntry("ExportCustomFieldScriptsOnly");
+        settings.Flush();
+        Fit();
+        m_buttonok->SetDefault();
+        return SaveSteamWindow::ShowModal();
+    }
 private:
-	wxCheckBox* m_customFieldScriptsOnly;
-
 	void OnShowHideInfo(wxMouseEvent& event) {
 		if (m_infotext->IsShown()) {
 			m_infotext->Hide();
@@ -588,7 +566,7 @@ private:
 void MainFrame::OnSaveSteamClick(wxCommandEvent& event) {
 	unsigned int currentpanel = m_cdbook->GetSelection();
 	unsigned int i;
-	SaveSteamDialog dial(this);
+	SaveSteamDialog dial(this, *CDPanel[currentpanel]);
 	dial.m_dirpicker->SetDirName(SteamSaveDir);
 	if (CDPanel[currentpanel]->config.dll_usage != 0) {
 		dial.m_dllformat->SetSelection(1);
@@ -609,7 +587,7 @@ void MainFrame::OnSaveSteamClick(wxCommandEvent& event) {
 			wxFileName::Mkdir(SteamSaveDir.GetPath() + _(L"\\StreamingAssets\\"), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 			wxFileName::Mkdir(SteamSaveDir.GetPath() + _(L"\\x64\\FF9_Data\\"), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 		}
-		int res = CreateSteamMod(SteamSaveDir.GetPath().ToStdString(), modifiedsection, CDPanel[currentpanel]->config, CDPanel[currentpanel]->saveset, dllformat, assetformat, deleteold, dial.CustomFieldScriptsOnly());
+		int res = CreateSteamMod(SteamSaveDir.GetPath().ToStdString(), modifiedsection, CDPanel[currentpanel]->config, CDPanel[currentpanel]->saveset, dllformat, assetformat, deleteold);
 		if (res == 0 || res == -1)
 			ToolModManager::SyncProjectWorkspace(*CDPanel[currentpanel]);
 		if (res == 0) {
@@ -876,42 +854,28 @@ void MainFrame::OnBatchExportClick(wxCommandEvent& event) {
 	}
 }
 
+void MainFrame::ImportBatch() {
+    wxCommandEvent event(wxEVT_MENU, wxID_ANY);
+    OnBatchImportClick(event);
+}
+
 void MainFrame::OnBatchImportClick(wxCommandEvent& event) {
-	unsigned int currentpanel = m_cdbook->GetSelection();
-	int id = event.GetId();
-	if (id == wxID_IMPTEXT) {
-		BatchImportDialog dial(this);
-		dial.ShowModal(1, &CDPanel[currentpanel]->saveset, CDPanel[currentpanel]->config.language & LANGUAGE_VERSION_JAPAN);
-		if (dial.datamodified) {
-			for (auto section = dial.datasectionmodified.begin(); section != dial.datasectionmodified.end(); section++)
-				CDPanel[currentpanel]->UpdateTextDisplays(*section);
-			CDPanel[currentpanel]->DisplayCurrentData();
-			MarkDataModified();
-			ToolModManager::SyncProjectWorkspace(*CDPanel[currentpanel]);
-		}
-	} else if (id == wxID_IMPENMYSCRIPT) {
-		BatchImportDialog dial(this);
-		dial.ShowModal(100, &CDPanel[currentpanel]->saveset, CDPanel[currentpanel]->config.language & LANGUAGE_VERSION_JAPAN);
-		if (dial.datamodified) {
-			CDPanel[currentpanel]->saveset.sectionmodified[DATA_SECTION_ENMY] = true;
-			MarkDataModified();
-		}
-	} else if (id == wxID_IMPWORLDSCRIPT) {
-		BatchImportDialog dial(this);
-		dial.ShowModal(101, &CDPanel[currentpanel]->saveset, CDPanel[currentpanel]->config.language & LANGUAGE_VERSION_JAPAN);
-		if (dial.datamodified) {
-			CDPanel[currentpanel]->saveset.sectionmodified[DATA_SECTION_WORLD_MAP] = true;
-			MarkDataModified();
-		}
-	} else if (id == wxID_IMPFIELDSCRIPT) {
-		BatchImportDialog dial(this);
-		dial.ShowModal(102, &CDPanel[currentpanel]->saveset, CDPanel[currentpanel]->config.language & LANGUAGE_VERSION_JAPAN);
-		if (dial.datamodified) {
-			CDPanel[currentpanel]->saveset.sectionmodified[DATA_SECTION_FIELD] = true;
-			MarkDataModified();
-			ToolModManager::SyncProjectWorkspace(*CDPanel[currentpanel]);
-		}
-	}
+    const int panel = m_cdbook->GetSelection();
+    if (panel == wxNOT_FOUND) return;
+    const int id = event.GetId();
+    const int type = id == wxID_IMPTEXT ? 1 : id == wxID_IMPENMYSCRIPT ? 100 :
+        id == wxID_IMPWORLDSCRIPT ? 101 : id == wxID_IMPFIELDSCRIPT ? 102 : 0;
+    BatchImportDialog dial(this);
+    dial.ShowModal(type, &CDPanel[panel]->saveset, CDPanel[panel]->config.language & LANGUAGE_VERSION_JAPAN);
+    if (dial.datamodified) {
+        for (int section : dial.datasectionmodified) {
+            CDPanel[panel]->saveset.sectionmodified[section] = true;
+            CDPanel[panel]->UpdateTextDisplays(section);
+        }
+        CDPanel[panel]->DisplayCurrentData();
+        MarkDataModified();
+        ToolModManager::SyncProjectWorkspace(*CDPanel[panel]);
+    }
 }
 
 void MainFrame::OnToolClick( wxCommandEvent& event ) {

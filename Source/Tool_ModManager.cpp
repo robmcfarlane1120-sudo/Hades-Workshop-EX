@@ -22,6 +22,8 @@
 #include <set>
 #include <wx/checklst.h>
 #include <wx/file.h>
+#include <wx/filepicker.h>
+#include <wx/fileconf.h>
 #include <wx/dir.h>
 #include <wx/stdpaths.h>
 #include <wx/msw/wrapwin.h>
@@ -753,10 +755,6 @@ void ToolModManager::ReviewWorkspace(CDDataStruct& project, wxWindow* parent) {
 	if (unreadable)
 		wxMessageBox(wxString::Format(_("%d tracked file(s) are missing or unreadable. They are excluded from parent review."), unreadable),
 			_("Project Workspace"), wxOK | wxICON_INFORMATION, parent);
-	if (changes.empty()) {
-		wxMessageBox(_("No external script or text changes found."), _("Project Workspace"), wxOK | wxICON_INFORMATION, parent);
-		return;
-	}
 
 	wxDialog dialog(parent, wxID_ANY, _("Review Workspace Changes"), wxDefaultPosition,
 		parent->FromDIP(wxSize(1000, 650)), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
@@ -781,20 +779,68 @@ void ToolModManager::ReviewWorkspace(CDDataStruct& project, wxWindow* parent) {
 	list->Bind(wxEVT_LISTBOX, [&](wxCommandEvent&) { showDiff(); });
 	for (unsigned int i = 0; i < names.size(); ++i)
 		list->Check(i);
-	list->SetSelection(0);
-	showDiff();
+	if (!changes.empty()) { list->SetSelection(0); showDiff(); }
+    else diff->SetValue("No external changes. Export is available for the current open project.");
 	body->Add(list, 0, wxEXPAND | wxRIGHT, 6);
 	body->Add(diff, 1, wxEXPAND);
 	layout->Add(body, 1, wxEXPAND | wxLEFT | wxRIGHT, 8);
-	auto* buttons = new wxBoxSizer(wxHORIZONTAL);
-	buttons->Add(new wxButton(&dialog, wxID_CANCEL, _("Cancel")), 0, wxALL, 4);
-	auto* apply = new wxButton(&dialog, wxID_OK, _("Apply && Parse"));
-	buttons->Add(apply, 0, wxALL, 4);
-	layout->Add(buttons, 0, wxALIGN_RIGHT | wxALL, 4);
-	dialog.SetSizer(layout);
-	dialog.CentreOnParent();
-	if (dialog.ShowModal() != wxID_OK)
-		return;
+
+    const wxString settingsPath = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath() + "/HwsSession.ini";
+    wxFileConfig settings(wxEmptyString, wxEmptyString, settingsPath, wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+    wxString exportPath = GetTopWindow()->SteamSaveDir.GetPath();
+    settings.Read("WorkspaceReviewExportFolder", &exportPath, exportPath);
+    auto* exportRow = new wxBoxSizer(wxHORIZONTAL);
+    exportRow->Add(new wxStaticText(&dialog, wxID_ANY, "Export folder"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    auto* destination = new wxDirPickerCtrl(&dialog, wxID_ANY, exportPath, "Choose destination mod folder", wxDefaultPosition, wxDefaultSize, wxDIRP_DEFAULT_STYLE | wxDIRP_USE_TEXTCTRL);
+    exportRow->Add(destination, 1, wxEXPAND);
+    layout->Add(exportRow, 0, wxEXPAND | wxALL, 8);
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "Parse applies checked changes. Export writes the current project; field visual assets are preserved."), 0, wxLEFT | wxRIGHT | wxBOTTOM, 8);
+    auto* buttons = new wxBoxSizer(wxHORIZONTAL);
+    buttons->Add(new wxButton(&dialog, wxID_CANCEL, "Cancel"), 0, wxALL, 4);
+    auto* apply = new wxButton(&dialog, wxID_OK, "Parse");
+    auto* exportOnly = new wxButton(&dialog, wxID_SAVE, "Export");
+    auto* parseExport = new wxButton(&dialog, wxID_APPLY, "Parse and Export");
+    buttons->Add(apply, 0, wxALL, 4);
+    buttons->Add(exportOnly, 0, wxALL, 4);
+    buttons->Add(parseExport, 0, wxALL, 4);
+    apply->Enable(!changes.empty());
+    parseExport->Enable(!changes.empty() && project.config.dll_usage != 0);
+    exportOnly->Enable(project.config.dll_usage != 0);
+    layout->Add(buttons, 0, wxALIGN_RIGHT | wxALL, 4);
+    const auto requestExport = [&](wxCommandEvent& event) {
+        const wxString path = destination->GetPath();
+        if (path.empty() || !wxFileName(path, wxEmptyString).IsAbsolute()) {
+            wxMessageBox("Choose an absolute destination mod folder before exporting.", "Export", wxOK | wxICON_INFORMATION, &dialog);
+            return;
+        }
+        settings.Write("WorkspaceReviewExportFolder", path);
+        settings.Flush();
+        dialog.EndModal(event.GetId());
+    };
+    exportOnly->Bind(wxEVT_BUTTON, requestExport);
+    parseExport->Bind(wxEVT_BUTTON, requestExport);
+    dialog.SetSizer(layout);
+    dialog.CentreOnParent();
+    const int action = dialog.ShowModal();
+    if (action != wxID_OK && action != wxID_SAVE && action != wxID_APPLY) return;
+    const auto exportProject = [&]() {
+        bool sections[DATA_SECTION_AMOUNT];
+        for (int i = 0; i < DATA_SECTION_AMOUNT; ++i) sections[i] = project.saveset.sectionmodified[i];
+        // Use the existing Memoria/raw-asset exporter. Never delete unrelated destination files.
+        const int result = CreateSteamMod(destination->GetPath().ToStdString(), sections, project.config, project.saveset, 1, 1, false);
+        if (result == 0 || result == -1) {
+            GetTopWindow()->SteamSaveDir.AssignDir(destination->GetPath());
+            SyncProjectWorkspace(project);
+            wxMessageBox(result == 0
+                ? "Export completed. Field visual assets were preserved. Save the HWS project separately to retain your edits."
+                : "Export completed with the existing C# compatibility warning. Save the HWS project separately.",
+                "Export", wxOK | (result == 0 ? wxICON_INFORMATION : wxICON_WARNING), parent);
+        } else {
+            wxMessageBox(wxString::Format("Export failed (code %d). Applied edits remain in the open project; save it and retry Export. The destination may contain a partial export.", result),
+                "Export", wxOK | wxICON_ERROR, parent);
+        }
+    };
+    if (action == wxID_SAVE) { exportProject(); return; }
 
 	std::vector<WorkspaceChange*> selected;
 	StagedTexts texts;
@@ -874,6 +920,10 @@ void ToolModManager::ReviewWorkspace(CDDataStruct& project, wxWindow* parent) {
 		LogDialog warnings(parent, diagnostics);
 		warnings.ShowModal();
 	}
+    if (action == wxID_APPLY && !baselineErrors) {
+        exportProject();
+        return;
+    }
 	wxMessageBox(baselineErrors
 		? _("Changes applied in memory, but some workspace baselines could not be updated. Inspect the changes before saving.")
 		: _("Changes applied to the open project. Inspect them in HWS, then Save Mod or export when ready."),

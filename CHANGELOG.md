@@ -4,7 +4,10 @@
 
 - Added native workspace buttons for field scripts and dialogue, automatic pending-change refresh, and variable-allocation metadata refreshed on parse and save.
 - Hardened script loading, batch entry imports, and workspace parse sizing; custom battle exports avoid duplicate background registration.
-- Persisted the custom-field-only export toggle across restarts and enlarged export dialogs for the scaled UI.
+- Replaced the old custom-field export controls with selective field creation and right-click Export Assets, including MapConfig lighting. Normal exports preserve field visual assets.
+- Added a built-in field script template, guarded custom text-block removal, and Parse and Export with a destination folder in Review Changes.
+- Added typed custom casting names and numeric animation IDs; fixed reopening animation dialogs.
+- Updated the application icon and opening artwork for Cheddar's Workshop.
 - Made OK in Create Steam Mod and enabled Import in Open Mod the initially focused default buttons for Enter.
 - Added a validated Windows build/publish script and installation-local source/dependency paths, preserving configuration and workspace files during deployment.
 

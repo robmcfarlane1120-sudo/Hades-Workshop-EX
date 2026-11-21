@@ -1,4 +1,4 @@
-# Chedderbung's HWS v1.0
+# Cheddar's Workshop
 
 An unofficial Windows x64 build of Hades Workshop 0.53, originally developed by [Tirlititi](https://github.com/Tirlititi/Hades-Workshop) (upstream commit f428246).
 
@@ -20,7 +20,7 @@ An unofficial Windows x64 build of Hades Workshop 0.53, originally developed by 
 ## Custom fields and projects
 
 - **Embedded field previews.** **Change Preview** embeds a selected PNG in a custom field's `.hws` project data. It follows the project when it is renamed or saved under a new filename. The preview image affects the editor display only.
-- **Script-only custom field export.** With **Raw Assets** selected, **Export custom field scripts only** exports the custom field scripts and their `FieldScene` registrations while preserving existing background, walkmesh, and SPS files. The checkbox remembers its state across editor restarts.
+- **Selective field creation and asset export.** Right-click a field to choose **Create New Field...** or **Export Assets**. Creation includes a donor selector, component choices, a built-in script template, and an optional asset export folder. Explicit asset export includes BGX/cameras, BGI, PNG, SPS, and MapConfig lighting where available. Normal project exports preserve field visual assets.
 - **Project open and save.** HWS remembers the project folder, prefills the save path for the current project, and displays the project filename and unsaved marker in the title bar.
 - **Standalone executable.** The editor features above run without the external QoL companion. This build still uses Memoria for the game's mod loading.
 
@@ -40,6 +40,10 @@ Back in Modifications Manager, choose **Review Changes**, select the files to in
 - Workspace metadata exposes variable allocations and refreshes during parse and save. Imports preserve pending external changes and report conflicts instead of silently overwriting them.
 - Script loading, batch entry handling, and workspace parsing include bounds and sizing fixes. Custom battle exports avoid duplicate background registrations.
 - Export dialogs accommodate the larger UI font, and Create Steam Mod uses a readable cyan warning. Its OK button and Open Mod's enabled Import button receive initial keyboard focus and are the default Enter actions.
+
+## Spell editing
+
+- Custom casting titles can be entered from the Casting Name dropdown. Animation dialogs accept numeric SFX IDs, including custom effects, and reopen independently for each edit.
 
 ## Building on Windows
 

@@ -1,6 +1,8 @@
 #include "File_Batching.h"
 
 #include <wx/dir.h>
+#include <wx/fileconf.h>
+#include <wx/stdpaths.h>
 #include "Gui_Manipulation.h"
 #include "Gui_LoadingDialog.h"
 #include "Gui_TextEditor.h"
@@ -1738,20 +1740,66 @@ BatchImportDialog::~BatchImportDialog() {
 	list_popup_menu->Disconnect(wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(BatchImportDialog::OnSelectRightClickMenu), NULL, this);
 }
 
+wxString BatchImportDialog::DefaultDirectory() {
+    return wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPathWithSep() + "batch";
+}
+
+static wxString BatchSettingsPath() {
+    return wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPathWithSep() + "HwsSession.ini";
+}
+
+static int DetectBatchType(wxString text) {
+    if (!text.empty() && text[0] == 0xFEFF) text = text.Mid(1);
+    while (!text.empty()) {
+        wxString line = FB_GetWxStringLine(text);
+        line.Trim(false);
+        if (FB_GetNextWord(line) != "#HW" || FB_GetNextWord(line) != "filetype") continue;
+        const wxString kind = FB_GetNextWord(line);
+        if (kind == "FIELDSCRIPT") return 102;
+        if (kind == "ENEMYSCRIPT") return 100;
+        if (kind == "WORLDSCRIPT") return 101;
+        if (kind == "TEXT" || kind.StartsWith("TEXT_") || kind == "UITEXT") return 1;
+        return -1;
+    }
+    return -1;
+}
+
 int BatchImportDialog::ShowModal(int type, SaveSet* datas, bool isjapan) {
 	datatype = type;
 	dataset = datas;
 	japanversion = isjapan;
 	datamodified = false;
 	datasectionmodified.clear();
-	if (type != 1 || GetGameType() != GAME_TYPE_PSX)
+	if ((type != 1 && type != 0) || GetGameType() != GAME_TYPE_PSX)
 		m_adjustsizepanel->Show(false);
-	return wxDialog::ShowModal();
+    wxString folder;
+    wxFileConfig settings(wxEmptyString, wxEmptyString, BatchSettingsPath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+    if (!settings.Read("BatchImportFolder", &folder) || !wxDirExists(folder)) folder = DefaultDirectory();
+    if (!wxDirExists(folder)) wxFileName::Mkdir(folder, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
+    m_filepicker->SetInitialDirectory(folder);
+    const wxString initial = wxFileName::DirName(folder).GetPathWithSep();
+    m_filepicker->SetPath(initial);
+    wxFileDirPickerEvent picked(wxEVT_FILEPICKER_CHANGED, m_filepicker, m_filepicker->GetId(), initial);
+    OnFilePick(picked);
+    // Opening the dialog must not implicitly select every old import again.
+    for (unsigned int i = 0; i < m_importlist->GetCount(); ++i) m_importlist->Check(i, false);
+    if (type == 0) SetTitle(_("Import Batch - Automatic Type"));
+    return wxDialog::ShowModal();
 }
 
 void BatchImportDialog::OnFilePick(wxFileDirPickerEvent& event) {
 	wxFileName fname = m_filepicker->GetFileName();
 	wxString fnamestr = event.GetPath();
+    if (wxDirExists(fnamestr)) {
+        fnamestr = wxFileName::DirName(fnamestr).GetPathWithSep();
+        m_filepicker->SetPath(fnamestr);
+    }
+    wxString folder = wxFileName(fnamestr).GetPath();
+    if (wxDirExists(folder)) {
+        wxFileConfig settings(wxEmptyString, wxEmptyString, BatchSettingsPath(), wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+        settings.Write("BatchImportFolder", folder);
+        m_filepicker->SetInitialDirectory(folder);
+    }
 	m_importlist->Clear();
 	if (fname.IsFileReadable() && !fname.IsDir() && !wxDir::Exists(fnamestr)) {
 		m_importlist->Append(fname.GetFullName());
@@ -1805,7 +1853,14 @@ void BatchImportDialog::OnButtonClick(wxCommandEvent& event) {
 				wxString filestr = _(L"");
 				if (input.IsOpened())
 					input.ReadAll(&filestr);
-				switch (datatype) {
+                const int importType = datatype == 0 ? DetectBatchType(filestr) : datatype;
+                if (importType < 0) {
+                    wxMessageBox(_("Missing or unsupported #HW filetype header: ") + fname, _("Import Batch"), wxOK | wxICON_ERROR, this);
+                    ret = false;
+                    shownlog = true;
+                    continue;
+                }
+                switch (importType) {
 				case 1: {
 					LogStruct log = ImportText(dataset, datasectionmodified, filestr, m_adjustsize->IsChecked(), japanversion, m_fatalwarning->IsChecked());
 					if (log.ok) {

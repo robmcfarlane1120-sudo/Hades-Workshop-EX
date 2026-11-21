@@ -52,7 +52,7 @@ private:
 class SpellModelWindow : public SpellAnimationWindow {
 public:
 	SpellModelWindow(wxWindow* parent);
-	int ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, uint16_t currentmodel, uint16_t currentmodelalt = 0, bool alt = false);
+	int ShowModal(Spell_Target_Type tt, Spell_Target_Amount ta, int currentmodel, int currentmodelalt = 0, bool alt = false);
 
 	void OnSpin(wxSpinEvent& event);
 	void OnChoice(wxCommandEvent& event);

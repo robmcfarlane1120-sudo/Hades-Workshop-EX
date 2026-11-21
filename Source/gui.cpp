@@ -7795,7 +7795,7 @@ CDPanel::CDPanel( wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxS
 	bSizer15912->Fit( m_panelcil );
 	m_notebookmain->AddPage( m_panelcil, _("CIL Code"), false );
 
-	bSizer7->Add( m_notebookmain, 1, wxEXPAND | wxALL, 5 );
+	bSizer7->Add( m_notebookmain, 1, wxEXPAND, 0 );
 
 
 	this->SetSizer( bSizer7 );

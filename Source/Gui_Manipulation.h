@@ -352,6 +352,8 @@ private:
 	void OnWorldTextRightClickMenu(wxCommandEvent& event);
 	void OnListBoxField(wxCommandEvent& event);
 	void OnFieldRightClick(wxMouseEvent& event);
+	void CreateFieldFromSelection();
+	void ExportSelectedFieldAssets();
 	void OnFieldChangeName(wxCommandEvent& event);
 	void OnFieldChangeText(wxCommandEvent& event);
 	void OnFieldChangeSpin(wxSpinEvent& event);

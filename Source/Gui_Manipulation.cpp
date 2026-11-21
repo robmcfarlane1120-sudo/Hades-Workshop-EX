@@ -1,7 +1,15 @@
+#include <wx/textdlg.h>
+#include <wx/filepicker.h>
+#include <wx/checklst.h>
+#include <wx/dir.h>
+#include <wx/dirdlg.h>
+#include <wx/stdpaths.h>
 // Modified by Cheddarbung - November 2026. Based on Hades Workshop 0.53 by Tirlititi. Distributed under GNU GPL v3.
 
 #include "Gui_Manipulation.h"
 #include "Tool_ModManager.h"
+#include "File_Batching.h"
+#include <wx/filename.h>
 
 #include <fstream>
 #include <sstream>
@@ -1689,7 +1697,7 @@ void CDDataStruct::DisplaySpell(int spellid) {
 	m_spellperformname->Clear();
 	SpecialTextDataStruct& spellnamingtexts = ffuiset.special_text->text_block[SpecialTextDataSet::GetSpellNamingIndex()];
 	wxArrayString perfname;
-	int** perfvalue = new int*[SPELL_AMOUNT + spellnamingtexts.text.size() + 1];
+	int** perfvalue = new int*[SPELL_AMOUNT + spellnamingtexts.text.size() + 2];
 	perfname.Alloc(SPELL_AMOUNT + spellnamingtexts.text.size() + 1);
 	for (i = 0; i < SPELL_AMOUNT; i++) {
 		perfname.Add(_(spellset.spell[i].name.GetStr(hades::TEXT_PREVIEW_TYPE)));
@@ -1703,6 +1711,8 @@ void CDDataStruct::DisplaySpell(int spellid) {
 	perfvalue[perfname.GetCount() - 1] = new int(0xFE);
 	perfname.Add(_(sp.name.GetStr(hades::TEXT_PREVIEW_TYPE)));
 	perfvalue[perfname.GetCount() - 1] = new int(0xFF);
+	perfname.Add(_("Custom casting name..."));
+	perfvalue[perfname.GetCount() - 1] = new int(-1);
 	m_spellperformname->Append(perfname, (void**)perfvalue);
 	for (i = 0; i < m_spellperformname->GetCount(); i++)
 		if (sp.perform_name == *perfvalue[i]) {
@@ -1850,7 +1860,43 @@ void CDDataStruct::OnSpellChangeChoice(wxCommandEvent& event) {
 	int id = event.GetId();
 	if (id == wxID_PERFNAME) {
 		int* item = (int*)event.GetClientData();
-		sp.perform_name = *item;
+        if (!item) return;
+        if (*item == -1) {
+            wxTextEntryDialog dialog(this, _("Enter the casting title. Using the spell's name selects its own-name title."), _("Custom Casting Name"), _(sp.name.GetStr(hades::TEXT_PREVIEW_TYPE)));
+            if (dialog.ShowModal() != wxID_OK || dialog.GetValue().Strip(wxString::both).empty()) {
+                DisplaySpell(*sortid);
+                return;
+            }
+            const wstring title = dialog.GetValue().Strip(wxString::both).ToStdWstring();
+            if (title == sp.name.GetStr(hades::TEXT_PREVIEW_TYPE)) {
+                sp.perform_name = 255;
+            } else {
+                SpecialTextDataStruct& titles = ffuiset.special_text->text_block[SpecialTextDataSet::GetSpellNamingIndex()];
+                int titleId = -1;
+                for (auto& entry : titles.text)
+                    if (entry.id > 0 && entry.id <= 62 && entry.txt.GetStr(hades::TEXT_PREVIEW_TYPE) == title) { titleId = entry.id; break; }
+                if (titleId < 0) {
+                    for (int candidate = 1; candidate <= 62; ++candidate)
+                        if (titles.GetTextIndexById(candidate) < 0) { titleId = candidate; break; }
+                    if (titleId < 0) {
+                        wxMessageBox(_("All custom casting-title slots are occupied. Choose an existing title or the spell's own name."), _("Casting Name"), wxOK | wxICON_INFORMATION, this);
+                        DisplaySpell(*sortid);
+                        return;
+                    }
+                    FF9String value;
+                    value.CreateEmpty();
+                    value.SetValue(title, GetSteamLanguage());
+                    if (titles.AddText(titleId, value)) { TextReachLimit(); DisplaySpell(*sortid); return; }
+                    ffuiset.special_text->modified = true;
+                    MarkDataMenuUIModified();
+                }
+                sp.perform_name = 191 + titleId;
+            }
+            MarkDataSpellModified();
+            DisplaySpell(*sortid);
+            return;
+        }
+        sp.perform_name = *item;
 	} else if (id == wxID_EFFECT) {
 		sp.effect = event.GetSelection();
 		m_spelleffectint->SetValue(sp.effect);
@@ -1964,41 +2010,29 @@ void CDDataStruct::OnSpellChangeButton(wxCommandEvent& event) {
 }
 
 void CDDataStruct::OnButtonClickSpellModel(wxCommandEvent& event) {
+	SpellModelWindow animationDialog(this);
+	auto* TheSpellModelWindow = &animationDialog;
 	int sel = m_spelllist->GetSelection();
 	unsigned int* sortid = (unsigned int*)m_spelllist->GetClientData(sel);
 	SpellDataStruct& sp = spellset.spell[*sortid];
 	TheSpellModelWindow->m_modelint->SetRange(0, gametype == GAME_TYPE_STEAM && config.dll_usage != 0 ? INT32_MAX : (int)UINT16_MAX);
 	if (TheSpellModelWindow->ShowModal(sp.GetTargetType(), sp.GetTargetAmount(), sp.model, sp.model_alt, false) == wxID_OK) {
-		SortedChoiceItemModel* item;
-		wxChoice* choice = TheSpellModelWindow->m_enableall->IsChecked() ? TheSpellModelWindow->m_modelall : TheSpellModelWindow->m_modelmain;
-		item = (SortedChoiceItemModel*)choice->GetClientData(choice->GetSelection());
-		if (TheSpellModelWindow->m_enableall->IsChecked() && item->id != TheSpellModelWindow->m_modelint->GetValue()) {
-			sp.model = TheSpellModelWindow->m_modelint->GetValue();
-			m_spellmodel->SetLabel(wxString::Format(wxT("SFX %d"), sp.model));
-		} else {
-			sp.model = item->id;
-			m_spellmodel->SetLabel(item->label);
-		}
+		sp.model = TheSpellModelWindow->m_modelint->GetValue();
+		m_spellmodel->SetLabel(wxString::Format(wxT("SFX %d"), sp.model));
 		MarkDataSpellModified();
 	}
 }
 
 void CDDataStruct::OnButtonClickSpellModelAlt(wxCommandEvent& event) {
+	SpellModelWindow animationDialog(this);
+	auto* TheSpellModelWindow = &animationDialog;
 	int sel = m_spelllist->GetSelection();
 	unsigned int* sortid = (unsigned int*)m_spelllist->GetClientData(sel);
 	SpellDataStruct& sp = spellset.spell[*sortid];
 	TheSpellModelWindow->m_modelint->SetRange(0, gametype == GAME_TYPE_STEAM && config.dll_usage != 0 ? INT32_MAX : (int)UINT16_MAX);
 	if (TheSpellModelWindow->ShowModal(sp.GetTargetType(), sp.GetTargetAmount(), sp.model, sp.model_alt, true) == wxID_OK) {
-		SortedChoiceItemModel* item;
-		wxChoice* choice = TheSpellModelWindow->m_enableall->IsChecked() ? TheSpellModelWindow->m_modelall : TheSpellModelWindow->m_modelmain;
-		item = (SortedChoiceItemModel*)choice->GetClientData(choice->GetSelection());
-		if (TheSpellModelWindow->m_enableall->IsChecked() && item->id != TheSpellModelWindow->m_modelint->GetValue()) {
-			sp.model_alt = TheSpellModelWindow->m_modelint->GetValue();
-			m_spellmodelalt->SetLabel(wxString::Format(wxT("SFX %d"), sp.model_alt));
-		} else {
-			sp.model_alt = item->id;
-			m_spellmodelalt->SetLabel(item->label);
-		}
+		sp.model_alt = TheSpellModelWindow->m_modelint->GetValue();
+		m_spellmodelalt->SetLabel(wxString::Format(wxT("SFX %d"), sp.model_alt));
 		MarkDataSpellModified();
 	}
 }
@@ -4440,22 +4474,16 @@ void CDDataStruct::OnKeyItemChangeSpin(wxSpinEvent& event) {
 }
 
 void CDDataStruct::OnButtonClickItemModel(wxCommandEvent& event) {
+	SpellModelWindow animationDialog(this);
+	auto* TheSpellModelWindow = &animationDialog;
 	int sel = m_itemlist->GetSelection();
 	unsigned int* sortid = (unsigned int*)m_itemlist->GetClientData(sel);
 	ItemDataStruct& it = itemset.item[*sortid];
 	ItemUsableDataStruct& ic = itemset.GetUsableById(it.usable_id);
 	TheSpellModelWindow->m_modelint->SetRange(0, gametype == GAME_TYPE_STEAM && config.dll_usage != 0 ? INT32_MAX : (int)UINT16_MAX);
 	if (TheSpellModelWindow->ShowModal(ic.GetTargetType(), ic.GetTargetAmount(), ic.model, ic.model, false) == wxID_OK) {
-		SortedChoiceItemModel* item;
-		wxChoice* choice = TheSpellModelWindow->m_enableall->IsChecked() ? TheSpellModelWindow->m_modelall : TheSpellModelWindow->m_modelmain;
-		item = (SortedChoiceItemModel*)choice->GetClientData(choice->GetSelection());
-		if (TheSpellModelWindow->m_enableall->IsChecked() && item->id != TheSpellModelWindow->m_modelint->GetValue()) {
-			ic.model = TheSpellModelWindow->m_modelint->GetValue();
-			m_itemusablemodel->SetLabel(wxString::Format(wxT("SFX %d"), ic.model));
-		} else {
-			ic.model = item->id;
-			m_itemusablemodel->SetLabel(item->label);
-		}
+		ic.model = TheSpellModelWindow->m_modelint->GetValue();
+		m_itemusablemodel->SetLabel(wxString::Format(wxT("SFX %d"), ic.model));
 		MarkDataItemModified();
 	}
 }
@@ -6923,12 +6951,55 @@ void CDDataStruct::OnTextManageCharmap(wxCommandEvent& event) {
 	}
 }
 
-void CDDataStruct::OnTextBlockRightClick(wxContextMenuEvent&) {
+void CDDataStruct::OnTextBlockRightClick(wxContextMenuEvent& event) {
 	if (gametype != GAME_TYPE_STEAM || config.dll_usage == 0) return;
 
-	wxMenu menu;
-	menu.Append(wxID_ADD, L"Add Custom Text Block");
-	if (m_textlist->GetPopupMenuSelectionFromUser(menu) != wxID_ADD) return;
+    if (event.GetPosition() != wxDefaultPosition) {
+        const int hit = m_textlist->HitTest(m_textlist->ScreenToClient(event.GetPosition()));
+        if (hit != wxNOT_FOUND) { m_textlist->SetSelection(hit); DisplayText(hit); }
+    }
+    const int selected = m_textlist->GetSelection();
+    const int selectedIndex = selected == wxNOT_FOUND ? -1 : static_cast<int>(textsorted[selected]);
+    wxMenu menu;
+    menu.Append(wxID_ADD, L"Add Custom Text Block");
+    menu.Append(wxID_DELETE, L"Remove Text Block");
+    menu.Enable(wxID_DELETE, selectedIndex >= 0 && textset.text_data[selectedIndex]->custom_block);
+    const int action = m_textlist->GetPopupMenuSelectionFromUser(menu);
+    if (action == wxID_DELETE) {
+        auto* block = textset.text_data[selectedIndex];
+        wxString references;
+        if (!saveset.sectionloaded[DATA_SECTION_FIELD]) {
+            wxMessageBox("Load the Fields section first so references can be checked.", "Remove Text Block", wxOK, this);
+            return;
+        }
+        for (unsigned int i = 0; i < fieldset.amount; ++i)
+            if (fieldset.related_text[i] == block || (fieldset.addition[i] && fieldset.addition[i]->text_block_id == block->block_id))
+                references += GetFieldName(i) + "\n";
+        if (!references.empty()) {
+            wxMessageBox("This block is still assigned to these fields. Assign another text block before removing it:\n\n" + references, "Remove Text Block", wxOK | wxICON_INFORMATION, this);
+            return;
+        }
+        if (wxMessageBox(wxString::Format("Remove custom text block %u from this project?", static_cast<unsigned int>(block->block_id)),
+            "Remove Text Block", wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, this) != wxYES) return;
+        if (!textset.RemoveCustomBlock(selectedIndex)) return;
+        saveset.sectionmodified[DATA_SECTION_TEXT] = true;
+        GetTopWindow()->MarkDataModified();
+        m_textlist->SetSelection(wxNOT_FOUND);
+        TextDisplayNames();
+        m_fieldtextblock->Clear();
+        for (unsigned int i = 0; i < textset.amount; ++i) {
+            wxString label = wxString(textset.name[i]);
+            if (textset.text_data[i]->custom_block) label = wxString::Format("%u: ", static_cast<unsigned int>(textset.struct_id[i])) + label;
+            m_fieldtextblock->Append(label);
+        }
+        if (m_fieldlist->GetSelection() != wxNOT_FOUND) {
+            auto* currentBlock = fieldset.related_text[fieldselection];
+            m_fieldtextblock->SetSelection(currentBlock ? textset.GetIndexById(currentBlock->block_id) : wxNOT_FOUND);
+        }
+        if (textset.amount) { m_textlist->SetSelection(0); DisplayText(0); }
+        return;
+    }
+    if (action != wxID_ADD) return;
 	wxTextEntryDialog nameDialog(this, L"Name for the new text block", L"Add Custom Text Block");
 	if (nameDialog.ShowModal() != wxID_OK) return;
 	wxString label = nameDialog.GetValue().Trim().Trim(false);
@@ -7190,17 +7261,473 @@ void CDDataStruct::OnListBoxField(wxCommandEvent& event) {
 	DisplayField(m_fieldlist->GetSelection());
 }
 
+
+namespace {
+// A unique, private staging directory: serialization never touches the export destination.
+struct FieldAssetStage {
+    wxString path;
+    FieldAssetStage() {
+        path = wxFileName::CreateTempFileName("hws-field-assets-");
+        if (!path.empty()) { wxRemoveFile(path); wxFileName::Mkdir(path); }
+    }
+    ~FieldAssetStage() { if (!path.empty()) wxFileName::Rmdir(path, wxPATH_RMDIR_RECURSIVE); }
+};
+
+
+// Built-in clean field. No donor event code or external template file is used.
+// Actor setup follows vanilla field 255 Zidane_Init; opcode signatures are from Database_Script.
+bool BuildCleanFieldTemplate(ScriptDataStruct& target, SaveSet& saveset, wxString& error) {
+    ScriptDataStruct clean;
+    clean = target;
+    clean.entry.clear(); clean.entry_amount = 0; clean.local_data.clear();
+    clean.global_data = ScriptLocalVariableSet();
+    clean.append_mode = 0;
+    clean.has_language = (1u << STEAM_LANGUAGE_AMOUNT) - 1;
+    memset(clean.header_unknown2, 0, sizeof(clean.header_unknown2));
+    memset(clean.header_unknown3, 0, sizeof(clean.header_unknown3));
+    struct TemplateFunction { int entry; int index; wxString body; };
+    vector<TemplateFunction> functions;
+    auto addEntry = [&](int type, int player) {
+        int entry = clean.entry_amount;
+        clean.AddEntry(entry, type, player);
+        clean.entry[entry].memoria_id = entry;
+        return entry;
+    };
+    auto addFunction = [&](int entry, int type, const wxString& alias, const wxString& body) {
+        int index = clean.entry[entry].function_amount;
+        clean.AddFunction(entry, index, type);
+        clean.entry[entry].func[index].display_alias = alias.ToStdWstring();
+        clean.entry[entry].func[index].SetDefaultScriptForced();
+        functions.push_back({entry, index, body});
+    };
+    addEntry(0, -1); // Main
+    addEntry(2, 0);  // Zidane
+    for (int i = 0; i < 6; ++i) addEntry(2, -1);
+    for (int i = 0; i < 3; ++i) addEntry(1, -1);
+    addEntry(0, -1); // Effects
+    addFunction(0, 0, "Main_Init", R"(
+DisableMove( )
+DisableMenu( )
+SetControlDirection( 0, 0 )
+SetRandomBattleFrequency( 0 )
+SetTriangleFlagMask( 255 )
+InitObject( 1, 0 )
+InitCode( 11, 0 )
+RunScriptSync( 0, 1, 13 )
+RunScriptSync( 0, 11, 13 )
+FadeFilter( 7, 16, 255, 0, 0, 0 )
+Wait( 16 )
+EnableMove( )
+EnableMenu( )
+return
+)");
+    addFunction(0, 10, "Main_Reinit", R"(
+SetRandomBattleFrequency( 0 )
+SetTriangleFlagMask( 255 )
+RunScriptSync( 0, 1, 13 )
+RunScriptSync( 0, 11, 13 )
+EnableMove( )
+EnableMenu( )
+return
+)");
+    addFunction(0, 1, "Main_Loop", "return\n");
+    addFunction(1, 0, "Zidane_Init_AutoSpawn_EditHere", R"(
+SetModel( 98, 93 )
+SetObjectFlags( 1 )
+SetPathing( 1 )
+// Automatic starting point: off-mesh coordinates invoke Memoria first-triangle fallback.
+// Replace these coordinates when you choose a specific entrance.
+CreateObject( 32767, 32767 )
+TurnInstant( 0 )
+SetStandAnimation( 200 )
+SetWalkAnimation( 25 )
+SetRunAnimation( 38 )
+SetLeftAnimation( 40 )
+SetRightAnimation( 41 )
+SetInactiveAnimation( 57 )
+SetObjectLogicalSize( 20, 24, 40 )
+SetAnimationStandSpeed( 14, 16, 18, 20 )
+SetHeadFocusMask( 97, 61 )
+DefinePlayerCharacter( )
+return
+)");
+    addFunction(1, 13, "Zidane_Ready", "return\n");
+    addFunction(1, 1, "Zidane_Loop", "return\n");
+    for (int i = 0; i < 6; ++i) {
+        int entry = 2 + i;
+        wxString name = wxString::Format("Object%d_DISABLED", i + 1);
+        addFunction(entry, 0, name + "_Init", "SetObjectFlags( 14 )\nSetObjectLogicalSize( 0, 0, 0 )\nreturn\n");
+        addFunction(entry, 1, name + "_Loop", "return\n");
+        addFunction(entry, 2, name + "_Range", "return\n");
+        addFunction(entry, 3, name + "_Speak", "return\n");
+    }
+    for (int i = 0; i < 3; ++i) {
+        wxString name = wxString::Format("Exit%d_DISABLED", i + 1);
+        addFunction(8 + i, 0, name + "_Init", "return\n");
+        addFunction(8 + i, 2, name + "_Range", "return\n");
+    }
+    addFunction(11, 0, "Effects_Init", "return\n");
+    addFunction(11, 13, "Effects_Setup_EntryAndAfterBattle", "return\n");
+    ScriptEditHandler handler(clean, SCRIPT_TYPE_FIELD, &saveset, NULL, NULL);
+    // GenerateFunctionStrings indexes functionlist_str; initialize that list first.
+    handler.GenerateFunctionList();
+    handler.GenerateFunctionStrings();
+    for (const auto& function : functions) {
+        LogStruct log = handler.ParseFunction(function.body, function.entry, function.index);
+        if (log.error_amount) { error = wxString(log.error); return false; }
+        handler.ApplyParsedFunction();
+    }
+    // Every language uses the same initial template, even in single-language editing mode.
+    for (auto& entry : handler.script.entry)
+        for (auto& function : entry.func)
+            for (SteamLanguage lang = 0; lang < STEAM_LANGUAGE_AMOUNT; ++lang)
+                function.indices[lang] = function.indices[GetSteamLanguage()];
+    target = handler.script;
+    return true;
+}
+
+wxString fieldAssetExportFolder;
+void EnlargeFieldDialog(wxDialog& dialog) {
+    wxFont font = dialog.GetFont();
+    font.SetPointSize(std::max(12, font.GetPointSize()));
+    dialog.SetFont(font);
+}
+bool ExportPreparedFieldFiles(wxWindow* parent, const wxString& stage, const wxString& destination, const wxArrayString& files) {
+    if (files.empty()) { wxMessageBox("No assets selected for export.", "Export Assets", wxOK, parent); return false; }
+    wxArrayString targets;
+    wxString existing;
+    for (const auto& file : files) {
+        wxFileName relative(file);
+        if (!relative.MakeRelativeTo(stage)) return false;
+        wxString target = destination + wxFILE_SEP_PATH + relative.GetFullPath();
+        targets.Add(target);
+        if (wxFileExists(target)) existing += relative.GetFullPath() + "\n";
+    }
+    if (!existing.empty() && wxMessageBox("Overwrite these selected files?\n\n" + existing,
+        "Confirm Asset Overwrite", wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, parent) != wxYES) return false;
+    unsigned int written = 0;
+    for (unsigned int i = 0; i < files.size(); ++i) {
+        wxFileName target(targets[i]);
+        if (!wxFileName::DirExists(target.GetPath()) && !wxFileName::Mkdir(target.GetPath(), wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL)) break;
+        if (!wxCopyFile(files[i], targets[i], true)) break;
+        ++written;
+    }
+    wxMessageBox(wxString::Format("Exported %u of %u selected assets to:\n", written, static_cast<unsigned int>(files.size())) + destination,
+        "Export Assets", wxOK | (written == files.size() ? wxICON_INFORMATION : wxICON_ERROR), parent);
+    return written == files.size();
+}
+
+void AddSelectionButtons(wxDialog& dialog, wxBoxSizer* layout, wxCheckListBox* list) {
+    auto* row = new wxBoxSizer(wxHORIZONTAL);
+    for (int value = 1; value >= 0; --value) {
+        auto* button = new wxButton(&dialog, wxID_ANY, value ? "Select All" : "Deselect All");
+        button->Bind(wxEVT_BUTTON, [list, value](wxCommandEvent&) {
+            for (unsigned int i = 0; i < list->GetCount(); ++i) list->Check(i, value != 0);
+        });
+        row->Add(button, 0, wxALL, 5);
+    }
+    layout->Add(row);
+}
+}
+
 void CDDataStruct::OnFieldRightClick(wxMouseEvent& event) {
-	int newsel = m_fieldlist->HitTest(event.GetPosition());
-	if (newsel != wxNOT_FOUND) {
-		m_fieldlist->SetSelection(newsel);
-		DisplayField(newsel);
-		SharedMenuSelection = fieldselection;
-		SharedMenuType = 9;
-		sharedmenuadd->Enable(gametype == GAME_TYPE_STEAM && config.dll_usage != 0);
-		sharedmenuremove->Enable(gametype == GAME_TYPE_STEAM && config.dll_usage != 0 && fieldset.addition[fieldselection] != NULL);
-		m_fieldlist->PopupMenu(sharedmenu);
-	}
+    int newsel = m_fieldlist->HitTest(event.GetPosition());
+    if (fieldset.amount == 0) return;
+    if (newsel != wxNOT_FOUND) {
+        m_fieldlist->SetSelection(newsel);
+        DisplayField(newsel);
+    }
+    SharedMenuSelection = fieldselection;
+    SharedMenuType = 9;
+    wxMenu menu;
+    const bool editable = gametype == GAME_TYPE_STEAM && config.dll_usage != 0;
+    auto* create = menu.Append(wxID_ANY, "Create New Field...");
+    auto* assets = menu.Append(wxID_ANY, "Export Assets");
+    menu.AppendSeparator();
+    auto* remove = menu.Append(wxID_ANY, sharedmenuremove->GetItemLabel());
+    create->Enable(editable && saveset.sectionloaded[DATA_SECTION_TEXT]);
+    assets->Enable(gametype == GAME_TYPE_STEAM);
+    remove->Enable(editable && fieldset.addition[fieldselection] != NULL);
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) { CreateFieldFromSelection(); }, create->GetId());
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) { ExportSelectedFieldAssets(); }, assets->GetId());
+    menu.Bind(wxEVT_MENU, [this](wxCommandEvent&) {
+        wxCommandEvent command(wxEVT_MENU, sharedmenuremove->GetId()); OnSharedRightClickMenu(command);
+    }, remove->GetId());
+    m_fieldlist->PopupMenu(&menu);
+}
+
+void CDDataStruct::ExportSelectedFieldAssets() {
+    if (fieldAssetExportFolder.empty()) fieldAssetExportFolder = GetTopWindow()->SteamSaveDir.GetPath();
+    const int selected = fieldselection;
+    FieldAssetStage stage;
+    if (stage.path.empty() || !wxDirExists(stage.path)) return;
+    FieldAdditionDataStruct asset = {};
+    if (fieldset.addition[selected]) asset = *fieldset.addition[selected];
+    else {
+        asset.index = selected;
+        asset.base_field_id = fieldset.GetIdByIndex(selected);
+        asset.sps_pool = asset.base_field_id;
+        asset.field_id = wxString::FromUTF8(SteamFieldScript[selected].script_name).Mid(4).ToStdWstring();
+        const wxString map = wxString::FromUTF8(SteamFieldScript[selected].background_name);
+        unsigned long area = 0;
+        map.Mid(5, 2).ToULong(&area);
+        asset.area_id = static_cast<uint8_t>(area);
+        asset.map_id = map.Mid(8).ToStdWstring();
+    }
+    const int result = asset.ExportAssets(config, saveset, stage.path.ToStdString());
+    wxArrayString files;
+    // Include directories so traversal reaches the nested FieldMaps output.
+    wxDir::GetAllFiles(stage.path, &files, wxEmptyString, wxDIR_FILES | wxDIR_DIRS);
+    files.Sort();
+    if (files.empty()) {
+        wxMessageBox(result ? "Could not read this field's assets. No destination files were changed." : "This field has no visual assets to export.", "Export Assets", wxOK, this);
+        return;
+    }
+    if (result) wxMessageBox("Some source assets could not be read. Only the successfully prepared files will be listed.", "Export Assets", wxOK | wxICON_WARNING, this);
+    wxDialog dialog(this, wxID_ANY, "Export Assets", wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+    EnlargeFieldDialog(dialog);
+    auto* layout = new wxBoxSizer(wxVERTICAL);
+    auto* note = new wxStaticText(&dialog, wxID_ANY, "Select assets to export from this field. BGX includes cameras; MapConfigData contains character lighting. Only checked files will be written.");
+    note->Wrap(dialog.FromDIP(860)); layout->Add(note, 0, wxALL, 10);
+    auto* list = new wxCheckListBox(&dialog, wxID_ANY, wxDefaultPosition, dialog.FromDIP(wxSize(960, 380)));
+    wxArrayString relative;
+    for (const auto& file : files) {
+        wxFileName name(file); name.MakeRelativeTo(stage.path);
+        relative.Add(name.GetFullPath()); list->Append(name.GetFullPath());
+    }
+    layout->Add(list, 1, wxEXPAND | wxALL, 10);
+    AddSelectionButtons(dialog, layout, list);
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "Export folder (mod root)"), 0, wxLEFT | wxTOP, 10);
+    auto* destination = new wxDirPickerCtrl(&dialog, wxID_ANY, fieldAssetExportFolder, "Select destination mod folder", wxDefaultPosition, wxDefaultSize, wxDIRP_DEFAULT_STYLE | wxDIRP_USE_TEXTCTRL);
+    layout->Add(destination, 0, wxEXPAND | wxALL, 10);
+    layout->Add(dialog.CreateSeparatedButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxALL, 10);
+    dialog.FindWindow(wxID_OK)->SetLabel("Export Selected");
+    dialog.SetSizerAndFit(layout);
+    dialog.Bind(wxEVT_BUTTON, [&](wxCommandEvent&) {
+        wxArrayInt checked; list->GetCheckedItems(checked);
+        if (checked.empty()) { wxMessageBox("Select at least one asset to export.", "Export Assets", wxOK, &dialog); return; }
+        if (destination->GetPath().empty() || !wxFileName(destination->GetPath(), wxEmptyString).IsAbsolute()) {
+            wxMessageBox("Choose an absolute export folder path.", "Export Assets", wxOK, &dialog); return;
+        }
+        fieldAssetExportFolder = destination->GetPath();
+        wxArrayString selectedFiles;
+        for (int i : checked) selectedFiles.Add(files[i]);
+        if (!ExportPreparedFieldFiles(&dialog, stage.path, fieldAssetExportFolder, selectedFiles)) return;
+        dialog.EndModal(wxID_OK);
+    }, wxID_OK);
+    dialog.ShowModal();
+}
+
+void CDDataStruct::CreateFieldFromSelection() {
+    if (fieldAssetExportFolder.empty()) fieldAssetExportFolder = GetTopWindow()->SteamSaveDir.GetPath();
+    wxDialog dialog(this, wxID_ANY, "Create New Field...", wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER);
+    EnlargeFieldDialog(dialog);
+    auto* layout = new wxBoxSizer(wxVERTICAL);
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "Donor field"), 0, wxLEFT | wxTOP, 10);
+    auto* donorChoice = new wxChoice(&dialog, wxID_ANY);
+    vector<int> donorIndices;
+    for (unsigned int i = 0; i < fieldset.amount; ++i) {
+        const int index = fieldsorted[i];
+        donorIndices.push_back(index);
+        donorChoice->Append(GetFieldName(index));
+        if (index == fieldselection) donorChoice->SetSelection(i);
+    }
+    layout->Add(donorChoice, 0, wxEXPAND | wxALL, 10);
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "New field ID"), 0, wxLEFT, 10);
+    int nextid = 6000; while (fieldset.GetIndexById(nextid) >= 0) ++nextid;
+    auto* id = new wxTextCtrl(&dialog, wxID_ANY, wxString::Format("%d", nextid));
+    layout->Add(id, 0, wxEXPAND | wxALL, 10);
+    auto* list = new wxCheckListBox(&dialog, wxID_ANY, wxDefaultPosition, dialog.FromDIP(wxSize(860, 260)));
+    const char* labels[] = { "Walkmesh (BGI)", "Background data (BGX)", "Background textures (PNG)", "Camera data", "Field scripts", "Other field data (background lighting and SPS pool)", "MapConfig lighting / character settings" };
+    for (auto label : labels) { list->Append(label); list->Check(list->GetCount() - 1); }
+    layout->Add(list, 1, wxEXPAND | wxALL, 10);
+    AddSelectionButtons(dialog, layout, list);
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "Script setup"), 0, wxLEFT, 10);
+    auto* scriptSetup = new wxChoice(&dialog, wxID_ANY);
+    scriptSetup->Append("Clean template (built into HWS)");
+    scriptSetup->Append("Copy donor scripts");
+    scriptSetup->Append("Empty script");
+    scriptSetup->SetSelection(0);
+    layout->Add(scriptSetup, 0, wxEXPAND | wxALL, 10);
+    scriptSetup->Bind(wxEVT_CHOICE, [list, scriptSetup](wxCommandEvent&) { list->Check(4, scriptSetup->GetSelection() != 2); });
+    list->Bind(wxEVT_CHECKLISTBOX, [list, scriptSetup](wxCommandEvent& event) {
+        if (event.GetInt() == 4) scriptSetup->SetSelection(list->IsChecked(4) ? 0 : 2);
+    });
+
+    auto* note = new wxStaticText(&dialog, wxID_ANY, "BGI and background data require matching donor cameras. PNG requires background data.\nUnchecked components start empty; a camera-only field is supported.\nClean template: Zidane + 6 inactive objects + 3 disabled exits + effects setup. Set spawn and exits before playing.\nTexture copies are stored independently beside HWS in FieldAssets/<new ID>.");
+    note->Wrap(dialog.FromDIP(860)); layout->Add(note, 0, wxALL, 10);
+    auto* exportNow = new wxCheckBox(&dialog, wxID_ANY, "Export selected visual assets when creating the field");
+    exportNow->SetValue(true);
+    layout->Add(exportNow, 0, wxALL, 10);
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "Export folder (mod root)"), 0, wxLEFT, 10);
+    auto* destination = new wxDirPickerCtrl(&dialog, wxID_ANY, fieldAssetExportFolder, "Select destination mod folder", wxDefaultPosition, wxDefaultSize, wxDIRP_DEFAULT_STYLE | wxDIRP_USE_TEXTCTRL);
+    layout->Add(destination, 0, wxEXPAND | wxALL, 10);
+    exportNow->Bind(wxEVT_CHECKBOX, [destination, exportNow](wxCommandEvent&) { destination->Enable(exportNow->GetValue()); });
+    layout->Add(new wxStaticText(&dialog, wxID_ANY, "Text/dialogue always uses the donor's existing block. Scripts use normal mod export."), 0, wxALL, 10);
+    layout->Add(dialog.CreateSeparatedButtonSizer(wxOK | wxCANCEL), 0, wxEXPAND | wxALL, 10);
+    dialog.FindWindow(wxID_OK)->SetLabel("Create Field");
+    dialog.SetSizerAndFit(layout);
+    // Validate and create while the dialog is still shown. Repeated ShowModal calls
+    // after EndModal can strand message boxes behind a disabled owner on Windows.
+    dialog.Bind(wxEVT_BUTTON, [&](wxCommandEvent&) {
+        long newid;
+        const int donorSelection = donorChoice->GetSelection();
+        if (donorSelection == wxNOT_FOUND) return;
+        const int donor = donorIndices[donorSelection];
+        if (!id->GetValue().ToLong(&newid) || newid < 0 || newid > INT32_MAX || newid == FIELD_ENDING_ID || fieldset.GetIndexById(newid) >= 0) {
+            wxMessageBox("Enter an unused field ID.", "Create New Field", wxOK | wxICON_ERROR, &dialog); return;
+        }
+        const wxString label = wxString::Format("New Field %ld", newid);
+        if (exportNow->GetValue() && (destination->GetPath().empty() || !wxFileName(destination->GetPath(), wxEmptyString).IsAbsolute())) {
+            wxMessageBox("Choose an absolute export folder path, or turn off export on creation.", "Create New Field", wxOK, &dialog); return;
+        }
+        if ((list->IsChecked(0) || list->IsChecked(1)) && !list->IsChecked(3)) {
+            wxMessageBox("Select Camera data when copying BGI or BGX so their projection stays aligned.", "Asset Dependencies", wxOK, &dialog); return;
+        }
+        if (list->IsChecked(2) && !list->IsChecked(1)) {
+            wxMessageBox("Select Background data with PNG textures to retain their overlay mapping.", "Asset Dependencies", wxOK, &dialog); return;
+        }
+        const wxString textureBase = wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath() + "\\FieldAssets\\" + wxString::Format("%ld", newid);
+        wxString textures = textureBase;
+        // Old exports or an earlier attempt must not reserve a field ID or overwrite assets.
+        for (unsigned int suffix = 2; wxFileName::Exists(textures); ++suffix)
+            textures = textureBase + wxString::Format("-%u", suffix);
+        int base = donor;
+        if (fieldset.addition[donor]) base = fieldset.GetIndexById(fieldset.addition[donor]->base_field_id);
+        if (base < 0 || !fieldset.CreateCustomField(config, base, newid)) { wxMessageBox("Could not initialize the donor field.", "Create New Field", wxOK | wxICON_ERROR, &dialog); return; }
+        const int added = fieldset.amount - 1;
+        auto* script = fieldset.script_data[added];
+        if (list->IsChecked(4) && scriptSetup->GetSelection() == 0) {
+            wxString parseError;
+            if (!BuildCleanFieldTemplate(*script, saveset, parseError)) {
+                fieldset.DeleteCustomField(added);
+                wxMessageBox("Built-in template validation failed. The field was not created.\n" + parseError, "Create New Field", wxOK | wxICON_ERROR, &dialog);
+                return;
+            }
+        } else if (list->IsChecked(4) && scriptSetup->GetSelection() == 1) {
+            ChunkChild identity = *script;
+            *script = *fieldset.script_data[donor];
+            static_cast<ChunkChild&>(*script) = identity;
+        } else {
+            script->entry.clear(); script->entry_amount = 0; script->local_data.clear();
+            script->global_data = ScriptLocalVariableSet();
+            script->AddEntry(0, 0, -1); script->entry[0].memoria_id = 0;
+            script->AddFunction(0, 0, 0);
+            script->entry[0].func[0].SetDefaultScriptForced();
+        }
+        fieldset.SetFieldName(added, label.ToStdWstring());
+        auto* bg = fieldset.background_data[added];
+        if (bg && fieldset.background_data[donor]) {
+            ChunkChild identity = *bg;
+            bg->Copy(*fieldset.background_data[donor]);
+            static_cast<ChunkChild&>(*bg) = identity;
+            bg->parent = &fieldset; bg->id = added;
+            for (unsigned int t = 0; t < bg->tiles.size(); ++t) { bg->tiles[t].parent = bg; bg->tiles[t].id = t; }
+            for (unsigned int c = 0; c < bg->camera.size(); ++c) { bg->camera[c].parent = bg; bg->camera[c].id = c; }
+            if (list->IsChecked(1)) {
+                if (!wxFileName::Mkdir(textures, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL)) { fieldset.DeleteCustomField(added); return; }
+                if (!bg->IsBGXFormat()) {
+                    bg->ConvertToBGX(textures);
+                    bool valid = true;
+                    for (const auto& tile : bg->tiles)
+                        if (!tile.memoria_bgx_path.empty() && !wxFileExists(tile.memoria_bgx_path)) valid = false;
+                    if (!valid) { fieldset.DeleteCustomField(added); wxMessageBox("Texture export failed; the new field was not registered.", "Create New Field", wxOK | wxICON_ERROR, &dialog); return; }
+                }
+                else if (list->IsChecked(2)) {
+                    bool copied = true;
+                    for (unsigned int t = 0; t < bg->tiles.size(); ++t) {
+                        auto& tile = bg->tiles[t];
+                        if (tile.memoria_bgx_path.empty()) continue;
+                        wxString target = textures + wxString::Format("\\Background_%u.png", t);
+                        if (!wxCopyFile(tile.memoria_bgx_path, target, false)) { copied = false; break; }
+                        tile.memoria_bgx_path = target;
+                    }
+                    if (!copied) { fieldset.DeleteCustomField(added); wxMessageBox("Texture copy failed; the new field was not registered.", "Create New Field", wxOK | wxICON_ERROR, &dialog); return; }
+                }
+                if (!list->IsChecked(2)) for (auto& tile : bg->tiles) tile.memoria_bgx_path.clear();
+            } else {
+                bg->tiles.clear(); bg->tiles_amount = 0; bg->title_tile_amount = 0;
+                bg->anim.clear(); bg->anim_amount = 0;
+            }
+            if (!list->IsChecked(3)) {
+                bg->camera.resize(1); bg->camera_amount = 1;
+                auto& camera = bg->camera[0];
+                for (int j = 0; j < 9; ++j) camera.matrix[j] = (j % 4 == 0) ? 4096 : 0;
+            }
+            if (!list->IsChecked(5)) { bg->light.clear(); bg->light_amount = 0; }
+            bg->SetupDataInfos(false); bg->SetupDataInfos(true);
+            FieldAssetStage sizing;
+            std::fstream serialized((sizing.path + "\\background.bytes").ToStdString(), std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
+            if (!serialized.is_open()) { fieldset.DeleteCustomField(added); return; }
+            bg->WriteHWS(serialized);
+            serialized.flush(); serialized.seekg(0, std::ios::end);
+            if (!serialized.good()) { fieldset.DeleteCustomField(added); return; }
+            bg->SetSize(static_cast<uint32_t>(serialized.tellg()));
+            MarkDataFieldModified(added, CHUNK_TYPE_FIELD_TILES);
+        }
+        if (fieldset.walkmesh[added]) {
+            auto* walk = fieldset.walkmesh[added]; ChunkChild identity = *walk;
+            if (list->IsChecked(0) && fieldset.walkmesh[donor]) *walk = *fieldset.walkmesh[donor];
+            else { auto magic = walk->magic_walkmesh; *walk = FieldWalkmeshDataStruct(); walk->magic_walkmesh = magic; walk->active_triangle = -1; walk->active_walkpath = -1; }
+            static_cast<ChunkChild&>(*walk) = identity; walk->UpdateOffset();
+            MarkDataFieldModified(added, CHUNK_TYPE_FIELD_WALK);
+        }
+        if (list->IsChecked(6)) {
+            // MapConfig role data owns raw arrays. Round-trip the existing serializer rather than sharing them.
+            FieldAssetStage stage;
+            const std::string rolefile = (stage.path + "\\roles.bytes").ToStdString();
+            std::fstream roles(rolefile, std::ios::in | std::ios::out | std::ios::binary | std::ios::trunc);
+            if (!roles.is_open()) { fieldset.DeleteCustomField(added); return; }
+            fieldset.role[donor]->WriteHWS(roles);
+            roles.flush(); roles.seekg(0, std::ios::end);
+            fieldset.role[added]->SetSize(std::max(fieldset.role[donor]->size, static_cast<uint32_t>(roles.tellg())));
+            roles.seekg(0);
+            fieldset.role[added]->ReadHWS(roles);
+            if (!roles.good()) { fieldset.DeleteCustomField(added); return; }
+            if (fieldset.addition[donor]) fieldset.addition[added]->preview_png = fieldset.addition[donor]->preview_png;
+        }
+        if (!list->IsChecked(6)) {
+            fieldset.role[added]->SetSize(fieldset.role[added]->size - 12 * fieldset.role[added]->unk1_amount);
+            fieldset.role[added]->unk1_amount = 0;
+            fieldset.role[added]->unk1_amount2 = 0;
+            while (fieldset.role[added]->unk2_amount) fieldset.role[added]->RemoveModelRole(0);
+        }
+        if (!list->IsChecked(5)) {
+            fieldset.addition[added]->sps_pool = 0;
+        } else if (fieldset.addition[donor]) {
+            fieldset.addition[added]->sps_pool = fieldset.addition[donor]->sps_pool;
+        }
+        // Share the selected donor's text block; field creation never allocates dialogue IDs.
+        fieldset.related_text[added] = fieldset.related_text[donor];
+        fieldset.addition[added]->text_block_id = fieldset.addition[donor]
+            ? fieldset.addition[donor]->text_block_id
+            : (fieldset.related_text[donor] ? fieldset.related_text[donor]->block_id : 0);
+        MarkDataFieldModified(added, CHUNK_TYPE_SCRIPT);
+        MarkDataFieldModified(added, CHUNK_TYPE_FIELD_ROLE);
+        MarkDataFieldModified(added, CHUNK_SPECIAL_TYPE_FIELD_ADDITION);
+        RegisterFieldAdded(added); FieldDisplayNames();
+        for (unsigned int i = 0; i < fieldset.amount; ++i) if (fieldsorted[i] == added) { m_fieldlist->SetSelection(i); DisplayField(i); break; }
+        if (exportNow->GetValue()) {
+            fieldAssetExportFolder = destination->GetPath();
+            FieldAssetStage stage;
+            int error = stage.path.empty() ? 3 : fieldset.addition[added]->ExportAssets(config, saveset, stage.path.ToStdString());
+            wxArrayString prepared, selectedFiles;
+            if (!stage.path.empty()) wxDir::GetAllFiles(stage.path, &prepared, wxEmptyString, wxDIR_FILES | wxDIR_DIRS);
+            for (const auto& file : prepared) {
+                const wxString lower = file.Lower();
+                if ((lower.EndsWith(".bgi.bytes") && list->IsChecked(0)) ||
+                    (lower.EndsWith(".bgx") && (list->IsChecked(1) || list->IsChecked(3))) ||
+                    (lower.EndsWith(".png") && list->IsChecked(2)) ||
+                    (lower.Contains("mapconfigdata") && lower.EndsWith(".bytes") && list->IsChecked(6)) ||
+                    ((lower.EndsWith(".sps.bytes") || lower.EndsWith(".tcb.bytes")) && list->IsChecked(5))) selectedFiles.Add(file);
+            }
+            selectedFiles.Sort();
+            if (error || !ExportPreparedFieldFiles(&dialog, stage.path, fieldAssetExportFolder, selectedFiles))
+                wxMessageBox("The field was created, but its asset export was not completed. Right-click the new field and choose Export Assets to retry.", "Create New Field", wxOK | wxICON_WARNING, &dialog);
+        }
+        dialog.EndModal(wxID_OK);
+    }, wxID_OK);
+    dialog.ShowModal();
 }
 
 void CDDataStruct::OnFieldChangeName(wxCommandEvent& event) {
@@ -7404,17 +7931,21 @@ walkbmp.SaveFile(_(L"aaaa.bmp"),wxBITMAP_TYPE_BMP);*/
 			}
 		}
 	} else if (id == wxID_IMPORT) {
-		if (!TheWalkmeshImportWindow)
-			TheWalkmeshImportWindow = new WalkmeshImportWindow(GetTopWindow());
-		if (TheWalkmeshImportWindow->ShowModal() == wxID_OK && !TheWalkmeshImportWindow->m_filepickerimport->GetPath().IsEmpty()) {
+		static wxString lastWalkmeshImportPath;
+		wxFileName previousImport(lastWalkmeshImportPath);
+		wxFileDialog picker(GetTopWindow(), _("Import Walkmesh Geometry"),
+			previousImport.GetPath(), previousImport.GetFullName(),
+			_("Wavefront mesh (*.obj)|*.obj"), wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+		if (picker.ShowModal() == wxID_OK) {
+			lastWalkmeshImportPath = picker.GetPath();
 			wxString successmsg;
-			int res = fieldset.walkmesh[*sortid]->ImportFromObj(TheWalkmeshImportWindow->m_filepickerimport->GetPath().ToStdString(), &successmsg);
+			int res = fieldset.walkmesh[*sortid]->ImportFromObj(picker.GetPath().ToStdString(), &successmsg);
 			if (res == 0) {
-				wxMessageDialog popupsuccess(this, successmsg, HADES_STRING_SUCCESS, wxOK | wxCENTRE);
+				wxMessageDialog popupsuccess(this, successmsg + "\n\nFile: " + picker.GetPath(), HADES_STRING_SUCCESS, wxOK | wxCENTRE);
 				popupsuccess.ShowModal();
 				MarkDataFieldModified(*sortid, CHUNK_TYPE_FIELD_WALK);
 			} else if (res == -1) {
-				wxLogError(HADES_STRING_OPEN_ERROR_FAIL, TheWalkmeshImportWindow->m_filepickerimport->GetPath().c_str());
+				wxLogError(HADES_STRING_OPEN_ERROR_FAIL, picker.GetPath().c_str());
 			} else if (res < -1) {
 				wxLogError(HADES_STRING_WALKMESH_IMPORT_FAIL);
 			} else if (res == 1) {
@@ -8600,16 +9131,8 @@ void CDDataStruct::InitSpell(void) {
 		UpdateSpellStatusName(spellset.status_set[i]);
 		m_spellstatus->Append(spellset.status_set[i].name);
 	}
-	if (!TheSpellModelWindow) {
+	if (!TheSpellModelWindow)
 		TheSpellModelWindow = new SpellModelWindow(wxGetApp().GetTopWindow());
-		void** vptany = new void*[HADES_STRING_SPELL_MODEL.size()];
-		SpellModelAnyList.Alloc(HADES_STRING_SPELL_MODEL.size());
-		for (i = 0; i < HADES_STRING_SPELL_MODEL.size(); i++) {
-			SpellModelAnyList.Add(HADES_STRING_SPELL_MODEL[i].label);
-			vptany[i] = (void*)&HADES_STRING_SPELL_MODEL[i];
-		}
-		TheSpellModelWindow->m_modelall->Append(SpellModelAnyList, vptany);
-	}
 	saveset.sectionloaded[DATA_SECTION_SPELL] = true;
 	m_spelllist->SetSelection(0);
 }
@@ -8778,16 +9301,8 @@ void CDDataStruct::InitItem(void) {
 		m_itemusablestatusbaselist->Append(HADES_STRING_STATUS_NAME[i]);
 	for (i = 0; i < ITEM_WEAPON_AMOUNT; i++)
 		m_itemweaponsfx->Append(_(itemset.item[i].name.GetStr(hades::TEXT_PREVIEW_TYPE)));
-	if (!TheSpellModelWindow) {
+	if (!TheSpellModelWindow)
 		TheSpellModelWindow = new SpellModelWindow(wxGetApp().GetTopWindow());
-		void** vptany = new void*[HADES_STRING_SPELL_MODEL.size()];
-		SpellModelAnyList.Alloc(HADES_STRING_SPELL_MODEL.size());
-		for (i = 0; i < HADES_STRING_SPELL_MODEL.size(); i++) {
-			SpellModelAnyList.Add(HADES_STRING_SPELL_MODEL[i].label);
-			vptany[i] = (void*)&HADES_STRING_SPELL_MODEL[i];
-		}
-		TheSpellModelWindow->m_modelall->Append(SpellModelAnyList, vptany);
-	}
 	saveset.sectionloaded[DATA_SECTION_ITEM] = true;
 	m_itemlist->SetSelection(0);
 	m_keyitemlist->SetSelection(0);
@@ -9701,119 +10216,85 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
 	fieldtexpreview(wxNullBitmap) {
 	unsigned int i;
 	gametype = GetGameType();
-    // Workspace actions live alongside the native field script controls.
-    auto* workspace = new wxStaticBoxSizer(wxHORIZONTAL, m_fieldscrolledwindow, _("Workspace"));
-    auto* addToWorkspace = new wxButton(workspace->GetStaticBox(), wxID_ANY, _("Add to Workspace"));
-    auto* reviewWorkspace = new wxButton(workspace->GetStaticBox(), wxID_ANY, _("Review Changes"));
-    addToWorkspace->SetFont(m_fieldeditscript->GetFont());
-    reviewWorkspace->SetFont(m_fieldeditscript->GetFont());
-    workspace->GetStaticBox()->SetFont(m_fieldeditscript->GetFont());
-    addToWorkspace->SetToolTip(_("Add this field script and its linked text to the project workspace. Pending external edits are preserved."));
-    reviewWorkspace->SetToolTip(_("Review pending script and text edits in this project's workspace."));
-    addToWorkspace->Enable(false);
-    reviewWorkspace->Enable(false);
-    workspace->Add(addToWorkspace, 0, wxALL, 3);
-    workspace->Add(reviewWorkspace, 0, wxALL, 3);
-    // Give Workspace its own right-hand column spanning Name and Script.
-    // Lower field controls span both value columns, preserving the full preview width.
-    auto* previousGrid = m_fieldscrolledwindow->GetSizer();
-    auto* fieldGrid = new wxGridBagSizer(0, 0);
-    size_t itemIndex = 0;
-    while (previousGrid->GetItemCount()) {
-        auto* item = previousGrid->GetItem(size_t(0));
-        const int row = static_cast<int>(itemIndex / 2);
-        const int column = static_cast<int>(itemIndex % 2);
-        const wxGBPosition position(row, column);
-        const wxGBSpan span(1, row >= 2 && column == 1 ? 2 : 1);
-        const int flags = item->GetFlag();
-        const int border = item->GetBorder();
-        auto* window = item->GetWindow();
-        auto* sizer = item->GetSizer();
-        const auto spacer = item->IsSpacer() ? item->GetSpacer() : wxSize();
-        previousGrid->Detach(0);
-        if (window)
-            fieldGrid->Add(window, position, span, flags, border);
-        else if (sizer)
-            fieldGrid->Add(sizer, position, span, flags, border);
-        else
-            fieldGrid->Add(spacer.x, spacer.y, position, span, flags, border);
-        ++itemIndex;
+    // Place actions in the unused right side of the native main-tab strip.
+    auto* actionPanel = new wxPanel(m_notebookmain, wxID_ANY);
+    auto* actions = new wxBoxSizer(wxHORIZONTAL);
+    auto* addToWorkspace = new wxButton(actionPanel, wxID_ANY, _("Add to Workspace"));
+    auto* reviewWorkspace = new wxButton(actionPanel, wxID_ANY, _("Review Changes"));
+    auto* importBatch = new wxButton(actionPanel, wxID_ANY, _("Import Batch"));
+    auto* openBatch = new wxButton(actionPanel, wxID_ANY, _("Open Import Folder"));
+    for (auto* button : {addToWorkspace, reviewWorkspace, importBatch, openBatch}) {
+        button->SetFont(m_fieldeditscript->GetFont());
+        actions->Add(button, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(3));
     }
-    fieldGrid->Add(workspace, wxGBPosition(0, 2), wxGBSpan(2, 1), wxLEFT | wxALIGN_TOP, 10);
-    fieldGrid->AddGrowableCol(1);
-    fieldGrid->AddGrowableRow(5);
-    m_fieldscrolledwindow->SetSizer(fieldGrid);
+    actionPanel->SetSizer(actions);
+    const auto layoutActions = [this, actionPanel, actions]() {
+        const wxSize size = m_notebookmain->GetClientSize();
+        const int headerHeight = m_notebookmain->GetPageCount() ?
+            m_notebookmain->GetPage(0)->GetPosition().y : FromDIP(32);
+        const int width = actions->GetMinSize().x;
+        actionPanel->SetSize(wxMax(0, size.x - width - FromDIP(4)), 0,
+            width, wxMax(FromDIP(24), headerHeight - FromDIP(2)));
+        actionPanel->Layout();
+        actionPanel->Raise();
+    };
+    m_notebookmain->Bind(wxEVT_SIZE, [layoutActions](wxSizeEvent& event) {
+        event.Skip();
+        layoutActions();
+    });
+    CallAfter(layoutActions);
+    addToWorkspace->SetToolTip(_("Add the selected field script and linked text, or the selected text block, to the workspace. Pending edits are preserved."));
+    reviewWorkspace->SetToolTip(_("Review pending script and text changes in this project's workspace."));
+    importBatch->SetToolTip(_("Import batch files of any supported type; the HWS file header selects the importer."));
+    openBatch->SetToolTip(BatchImportDialog::DefaultDirectory());
     const auto canAddField = [this]() {
-        if (gametype != GAME_TYPE_STEAM || projectFilename.empty() || !saveset.sectionloaded[DATA_SECTION_FIELD])
-            return false;
+        if (!m_fieldscrolledwindow->IsShownOnScreen() || gametype != GAME_TYPE_STEAM || projectFilename.empty() || !saveset.sectionloaded[DATA_SECTION_FIELD]) return false;
         const int selection = m_fieldlist->GetSelection();
-        if (selection == wxNOT_FOUND)
-            return false;
+        if (selection == wxNOT_FOUND) return false;
         const auto* index = static_cast<const unsigned int*>(m_fieldlist->GetClientData(selection));
         return index && *index < fieldset.amount && fieldset.script_data[*index];
     };
-    addToWorkspace->Bind(wxEVT_UPDATE_UI, [canAddField](wxUpdateUIEvent& event) {
-        event.Enable(canAddField());
-    });
-    addToWorkspace->Bind(wxEVT_BUTTON, [this, canAddField](wxCommandEvent&) {
-        if (!canAddField())
-            return;
-        const auto index = *static_cast<const unsigned int*>(m_fieldlist->GetClientData(m_fieldlist->GetSelection()));
-        if (ToolModManager::SyncFieldWorkspace(*this, fieldset.GetIdByIndex(index), *fieldset.script_data[index], this))
-            wxMessageBox(_("Field script and linked text added to the workspace."), _("Project Workspace"), wxOK | wxICON_INFORMATION, this);
-    });
-    auto* textWorkspace = new wxStaticBoxSizer(wxHORIZONTAL, m_textscrolledwindow, _("Workspace"));
-    auto* addTextWorkspace = new wxButton(textWorkspace->GetStaticBox(), wxID_ANY, _("Add to Workspace"));
-    auto* reviewTextWorkspace = new wxButton(textWorkspace->GetStaticBox(), wxID_ANY, _("Review Changes"));
-    textWorkspace->GetStaticBox()->SetFont(m_textexport->GetFont());
-    for (auto* button : {addTextWorkspace, reviewTextWorkspace}) {
-        button->SetFont(m_textexport->GetFont());
-        button->Enable(false);
-        textWorkspace->Add(button, 0, wxALL, 3);
-    }
-    addTextWorkspace->SetToolTip(_("Add the selected text block to the workspace. Pending external edits are preserved."));
-    reviewTextWorkspace->SetToolTip(_("Review pending script and text edits in this project's workspace."));
-    m_textuniversalid->GetContainingSizer()->Insert(3, textWorkspace, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(12));
     const auto canAddText = [this]() {
-        if (gametype != GAME_TYPE_STEAM || projectFilename.empty() || !saveset.sectionloaded[DATA_SECTION_TEXT])
-            return false;
+        if (!m_textscrolledwindow->IsShownOnScreen() || gametype != GAME_TYPE_STEAM || projectFilename.empty() || !saveset.sectionloaded[DATA_SECTION_TEXT]) return false;
         const int selection = m_textlist->GetSelection();
-        if (selection == wxNOT_FOUND)
-            return false;
+        if (selection == wxNOT_FOUND) return false;
         const auto* index = static_cast<const unsigned int*>(m_textlist->GetClientData(selection));
         return index && *index < textset.amount && textset.text_data[*index];
     };
-    addTextWorkspace->Bind(wxEVT_UPDATE_UI, [canAddText](wxUpdateUIEvent& event) {
-        event.Enable(canAddText());
+    addToWorkspace->Enable(false);
+    reviewWorkspace->Enable(false);
+    addToWorkspace->Bind(wxEVT_UPDATE_UI, [canAddField, canAddText](wxUpdateUIEvent& event) { event.Enable(canAddField() || canAddText()); });
+    addToWorkspace->Bind(wxEVT_BUTTON, [this, canAddField, canAddText](wxCommandEvent&) {
+        bool added = false;
+        if (canAddField()) {
+            const auto index = *static_cast<const unsigned int*>(m_fieldlist->GetClientData(m_fieldlist->GetSelection()));
+            added = ToolModManager::SyncFieldWorkspace(*this, fieldset.GetIdByIndex(index), *fieldset.script_data[index], this);
+        } else if (canAddText()) {
+            const auto index = *static_cast<const unsigned int*>(m_textlist->GetClientData(m_textlist->GetSelection()));
+            added = ToolModManager::SyncTextBlockWorkspace(*this, index, this);
+        }
+        if (added) wxMessageBox(_("Selection added to the workspace."), _("Project Workspace"), wxOK | wxICON_INFORMATION, this);
     });
-    addTextWorkspace->Bind(wxEVT_BUTTON, [this, canAddText](wxCommandEvent&) {
-        if (!canAddText())
-            return;
-        const auto index = *static_cast<const unsigned int*>(m_textlist->GetClientData(m_textlist->GetSelection()));
-        if (ToolModManager::SyncTextBlockWorkspace(*this, index, this))
-            wxMessageBox(_("Text block added to the workspace."), _("Project Workspace"), wxOK | wxICON_INFORMATION, this);
-    });
-    reviewTextWorkspace->Bind(wxEVT_BUTTON, [this, reviewTextWorkspace](wxCommandEvent&) {
-        ToolModManager::ReviewWorkspace(*this, this);
-        reviewTextWorkspace->Enable(ToolModManager::HasPendingWorkspaceChanges(*this));
-    });
-    // A disk edit does not generate a wx idle event. Poll explicitly so the button
-    // updates even when the user has not moved the mouse or restarted HWS.
     workspaceRefreshTimer.SetOwner(this);
-    Bind(wxEVT_TIMER, [this, addToWorkspace, reviewWorkspace, canAddField, addTextWorkspace, reviewTextWorkspace, canAddText](wxTimerEvent&) {
-        if (!IsEnabled() || (!reviewWorkspace->IsShownOnScreen() && !reviewTextWorkspace->IsShownOnScreen()))
-            return;
-        addToWorkspace->Enable(canAddField());
-        addTextWorkspace->Enable(canAddText());
-        const bool ready = gametype == GAME_TYPE_STEAM && !projectFilename.empty();
-        const bool pending = ready && ToolModManager::HasPendingWorkspaceChanges(*this);
-        reviewWorkspace->Enable(pending);
-        reviewTextWorkspace->Enable(pending);
+    Bind(wxEVT_TIMER, [this, reviewWorkspace](wxTimerEvent&) {
+        if (!IsEnabled() || !IsShownOnScreen()) return;
+        reviewWorkspace->Enable(gametype == GAME_TYPE_STEAM && !projectFilename.empty() && ToolModManager::HasPendingWorkspaceChanges(*this));
     }, workspaceRefreshTimer.GetId());
     workspaceRefreshTimer.Start(1000);
     reviewWorkspace->Bind(wxEVT_BUTTON, [this, reviewWorkspace](wxCommandEvent&) {
         ToolModManager::ReviewWorkspace(*this, this);
         reviewWorkspace->Enable(ToolModManager::HasPendingWorkspaceChanges(*this));
+    });
+    importBatch->Bind(wxEVT_BUTTON, [](wxCommandEvent&) {
+        GetTopWindow()->ImportBatch();
+    });
+    openBatch->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        const wxString folder = BatchImportDialog::DefaultDirectory();
+        if (!wxDirExists(folder) && !wxFileName::Mkdir(folder, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL)) {
+            wxMessageBox(_("Could not create the batch folder."), _("Import Batch"), wxOK | wxICON_ERROR, this);
+            return;
+        }
+        wxLaunchDefaultApplication(folder);
     });
 	if (gametype == GAME_TYPE_STEAM) {
 		wxButton* previewButton = new wxButton(m_fieldcamera->GetParent(), wxID_ANY, _("Change Preview"));
