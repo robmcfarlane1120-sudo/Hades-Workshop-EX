@@ -6347,6 +6347,8 @@ CDPanel::CDPanel( wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxS
 
 	m_textdatalist = new wxListBox( m_textscrolledwindow, wxID_TEXT, wxDefaultPosition, wxDefaultSize, 0, NULL, 0 );
 	ScaleControlFont(m_textdatalist);
+	// Size for twenty populated rows, not the best size of an empty list.
+	m_textdatalist->SetMinSize(wxSize(-1, 20 * (m_textdatalist->GetCharHeight() + m_textdatalist->FromDIP(2)) + m_textdatalist->FromDIP(8)));
 	fgSizer14->Add( m_textdatalist, 0, wxALL|wxEXPAND, 2 );
 
 	m_staticText550 = new wxStaticText( m_textscrolledwindow, wxID_ANY, _("Text ID"), wxDefaultPosition, wxDefaultSize, 0 );

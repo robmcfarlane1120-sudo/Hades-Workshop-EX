@@ -10410,7 +10410,7 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
     actionPanel->SetSizer(actions);
     auto* emblem = new wxPanel(m_notebookmain, wxID_ANY);
     emblem->SetBackgroundStyle(wxBG_STYLE_PAINT);
-    emblem->SetToolTip(_("Cheddar's Workshop"));
+    emblem->SetToolTip(_("Hades Workshop EX"));
     const wxImage emblemImage = wxBitmap(wxIcon("hadesworkshop_icon", wxBITMAP_TYPE_ICO_RESOURCE, 256, 256)).ConvertToImage();
     emblem->Bind(wxEVT_PAINT, [emblem, emblemImage](wxPaintEvent&) {
         wxAutoBufferedPaintDC dc(emblem);

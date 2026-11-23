@@ -161,7 +161,7 @@ void MainFrame::DeleteFullDir(string dirname) {
 static wxString SessionSettingsPath();
 
 MainFrame::MainFrame(wxWindow *parent) :
-	MainFrameBase(parent, wxID_ANY, "HWS Chedderbung Build"),
+	MainFrameBase(parent, wxID_ANY, "Hades Workshop EX"),
 	CDPanelAmount(0) {
 	SetIcon(wxICON(hadesworkshop_icon));
 	wxClientDC dc(m_background);
@@ -1043,7 +1043,7 @@ MainFrame* GetTopWindow() {
 void MainFrame::UpdateMenuAvailability(int panel) {
 	if (panel == wxNOT_FOUND)
 		panel = m_cdbook->GetSelection();
-	wxString title = "HWS Chedderbung Build";
+	wxString title = "Hades Workshop EX";
 	if (panel >= 0 && CDPanel[panel]) {
 		if (!CDPanel[panel]->projectFilename.empty())
 			title += " - " + wxFileName(CDPanel[panel]->projectFilename).GetFullName();
