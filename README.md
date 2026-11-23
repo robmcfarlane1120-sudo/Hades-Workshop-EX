@@ -1,6 +1,6 @@
 # Hades Workshop EX
 
-I started making these changes to Hades Workshop while developing The Lost Chapters. I wanted the editor to remember my folders, let me jump through lists with two-key prefix search, and make it easier to find things in field scripts. Those small quality-of-life changes grew into Hades Workshop EX, and I’m sharing it in case it makes other FFIX modders’ work a little easier.
+I started making these changes to Hades Workshop while developing The Lost Chapters. I wanted the editor to remember my folders, let me jump through lists with two-key prefix search, and make it easier to find things in field scripts and most importantly have a dark easier to look at UI. Those small quality-of-life changes grew into Hades Workshop EX, and I’m sharing it in case it makes other FFIX modders’ work a little easier.
 
 - Unofficial Windows x64 edition of [Hades Workshop 0.53 by Tirlititi](https://github.com/Tirlititi/Hades-Workshop/tree/f428246), with additions by Cheddarbung. Distributed under [GNU GPL v3](LICENSE).
 ## What’s new since 0.53
