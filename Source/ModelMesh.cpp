@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <algorithm>
 #include "Database_Animation.h"
-#include "fbxsdk.h"
+#include <fbxsdk.h>
 
 void InitializeSdkObjects(FbxManager*& pManager, FbxScene*& pScene);
 void DestroySdkObjects(FbxManager* pManager);

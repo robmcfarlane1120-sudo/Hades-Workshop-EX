@@ -21,3 +21,5 @@ I started making these changes to Hades Workshop while developing The Lost Chapt
 - Reopen the last confirmed game and project at startup, with remembered paths in Open and Open Mod. The window title shows the active project name and whether it has unsaved changes.
 - Open Mod shows progress while loading a `.hws` project. Import another project without changing the current project's save path. Save Mod prefills the current path, and Steam mod creation and project import support Enter on their default buttons.
 - **Script compatibility.** Large switch statements load correctly, and edits in Single Language Mode preserve script routes without adding stray language tags.
+
+- [Windows build dependencies](docs/BUILD-WINDOWS.md)
