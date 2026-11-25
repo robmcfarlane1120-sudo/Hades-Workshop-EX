@@ -15,7 +15,7 @@ class FieldAnimationPreview {
     std::vector<Tile> drawOrder;
     std::vector<bool> baseVisible;
     std::vector<uint32_t> atlas, pixels;
-    int width = 0, height = 0, atlasWidth = 0, atlasHeight = 0;
+    int width = 0, height = 0, atlasWidth = 0, atlasHeight = 0, tileSize = 64;
     static void Require(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 public:
     bool HasAnimation() const { return !tracks.empty(); }
@@ -24,7 +24,7 @@ public:
         Require(cameraId >= 0 && cameraId < (int)field.camera.size(), "No valid background camera.");
         const SteamFieldDictionary* entry = nullptr;
         for (const auto& candidate : SteamFieldScript) if (candidate.script_id == fieldId) { entry = &candidate; break; }
-        Require(entry && entry->file_id >= 1 && entry->file_id <= 9, "No Moguri field mapping.");
+        Require(entry && entry->file_id >= 1 && entry->file_id <= 9, "No field mapping.");
         wxFileName gameRoot = wxFileName::DirName(wxString::FromUTF8(config.steam_dir_assets));
         gameRoot.RemoveLastDir();
         const wxString mod = gameRoot.GetPathWithSep() + "MoguriMain\\StreamingAssets\\";
@@ -36,6 +36,11 @@ public:
             "This field has a Moguri layout override; using regular HWS preview.");
         wxImage loose;
         const wxString loosePath = mod + wxString::FromUTF8(resource + "atlas.png");
+        const wxString moguriBundle = mod + wxString::Format("p0data%d.bin", entry->file_id + 10);
+        const bool useMoguri = wxFileExists(loosePath) || wxFileExists(moguriBundle);
+        tileSize = useMoguri ? 64 : 32;
+        const int stride = tileSize + 4;
+        const int scale = tileSize / 16;
         if (wxFileExists(loosePath)) {
             Require(loose.LoadFile(loosePath, wxBITMAP_TYPE_PNG), "Cannot read Moguri atlas PNG.");
             atlasWidth = loose.GetWidth(); atlasHeight = loose.GetHeight();
@@ -45,19 +50,19 @@ public:
             for (size_t i = 0; i < atlas.size(); ++i)
                 atlas[i] = ((uint32_t)(alpha ? alpha[i] : 255) << 24) | (rgb[3*i] << 16) | (rgb[3*i+1] << 8) | rgb[3*i+2];
         } else {
-            const wxString bundlePath = mod + wxString::Format("p0data%d.bin", entry->file_id + 10);
+            const wxString bundlePath = useMoguri ? moguriBundle : wxFileName::DirName(wxString::FromUTF8(config.steam_dir_assets)).GetPathWithSep() + wxString::Format("p0data%d.bin", entry->file_id + 10);
             std::fstream input(bundlePath.ToStdWstring(), std::ios::in | std::ios::binary);
-            Require(input.is_open(), "MoguriMain field bundle not found beside the opened game.");
+            Require(input.is_open(), "Field texture bundle not found beside the opened game.");
             UnityArchiveMetaData meta;
             meta.Load(input, (UnityArchiveFile)(UNITY_ARCHIVE_DATA11 + entry->file_id - 1));
-            Require(input.good() && meta.loaded, "Cannot read Moguri bundle metadata.");
+            Require(input.good() && meta.loaded, "Cannot read field bundle metadata.");
             const auto bundleOffset = meta.GetFileOffset("", 142);
-            Require(bundleOffset != 0, "Moguri bundle index missing.");
+            Require(bundleOffset != 0, "field bundle index missing.");
             input.seekg(bundleOffset);
             UnityArchiveAssetBundle bundle; bundle.Load(input);
-            Require(input.good(), "Cannot read Moguri bundle index.");
+            Require(input.good(), "Cannot read field bundle index.");
             int index = meta.GetFileIndexByInfo(bundle.GetFileInfo(resource + "atlas.png"), 28);
-            Require(index >= 0, "No Moguri atlas for this field.");
+            Require(index >= 0, "No field atlas for this field.");
             auto offset = meta.GetFileOffsetByIndex(index);
             input.seekg(0, std::ios::end); const auto fileEnd = input.tellg();
             Require(offset && (uint64_t)offset + 60 <= (uint64_t)fileEnd, "Invalid atlas offset.");
@@ -68,16 +73,16 @@ public:
             Require(bytes >= 60 && bytes <= 268435456 && (uint64_t)offset + bytes <= (uint64_t)fileEnd && bytes <= meta.GetFileSizeByIndex(index), "Invalid or unsupported atlas texture.");
             std::vector<uint8_t> encoded(bytes);
             input.seekg(offset); input.read((char*)encoded.data(), bytes);
-            Require(input.good(), "Truncated Moguri atlas.");
+            Require(input.good(), "Truncated field atlas.");
             uint32_t w = 0, h = 0; uint8_t* decoded = nullptr;
-            Require(TIMImageDataStruct::ConvertFromSteamTexture(encoded.data(), &w, &h, &decoded), "Cannot decode Moguri atlas.");
+            Require(TIMImageDataStruct::ConvertFromSteamTexture(encoded.data(), &w, &h, &decoded), "Cannot decode field atlas.");
             std::unique_ptr<uint8_t[]> owned(decoded);
             atlasWidth = w; atlasHeight = h; atlas.resize((size_t)w*h);
             for (size_t i = 0; i < atlas.size(); ++i)
                 atlas[i] = ((uint32_t)decoded[4*i+3] << 24) | (decoded[4*i] << 16) | (decoded[4*i+1] << 8) | decoded[4*i+2];
         }
-        // Moguri 64px tiles have two pixels of padding on every side.
-        Require(atlasWidth % 68 == 0 && atlasHeight % 68 == 0, "Atlas is not a padded 64-pixel tile atlas.");
+        // Vanilla 32px and Moguri 64px tiles both have two pixels of padding per side.
+        Require(atlasWidth >= stride && atlasHeight >= stride && (!useMoguri || (atlasWidth % stride == 0 && atlasHeight % stride == 0)), "Atlas does not match the expected padded tile size.");
         const auto& cam = field.camera[cameraId];
         int maxX = 0, maxY = 0;
         baseVisible.resize(field.tiles_amount, false);
@@ -88,13 +93,13 @@ public:
             Require(!layer.is_memoria_bgx, "Custom image layers use regular HWS preview.");
             for (const auto& tile : layer.tile) {
                 if (tile.res == 0) continue; // Match HWS's normal preview filtering of mask tiles.
-                const int sx = (tile.steam_id % (atlasWidth / 68)) * 68 + 2;
-                const int sy = (tile.steam_id / (atlasWidth / 68)) * 68 + 2;
-                Require(sx + 64 <= atlasWidth && sy + 64 <= atlasHeight, "Tile lies outside Moguri atlas.");
-                int x = (layer.pos_x + tile.pos_x - cam.pos_x) * 4;
-                int y = (layer.pos_y + tile.pos_y - cam.pos_y) * 4;
+                const int sx = (tile.steam_id % (atlasWidth / stride)) * stride + 2;
+                const int sy = (tile.steam_id / (atlasWidth / stride)) * stride + 2;
+                Require(sx + tileSize <= atlasWidth && sy + tileSize <= atlasHeight, "Tile lies outside Moguri atlas.");
+                int x = (layer.pos_x + tile.pos_x - cam.pos_x) * scale;
+                int y = (layer.pos_y + tile.pos_y - cam.pos_y) * scale;
                 Require(x >= 0 && y >= 0 && x <= 16384 && y <= 16384, "Invalid tile placement.");
-                maxX = std::max(maxX, x + 64); maxY = std::max(maxY, y + 64);
+                maxX = std::max(maxX, x + tileSize); maxY = std::max(maxY, y + tileSize);
                 TIM_BlendMode blend = tile.trans ? (TIM_BlendMode)(TIM_BLENDMODE_ABR_0 + tile.alpha) : TIM_BLENDMODE_ABR_NONE;
                 if (fieldId == 2259 && i == 14) blend = TIM_BLENDMODE_ABR_NONE;
                 drawOrder.push_back({(int)i, x, y, sy * atlasWidth + sx, (int)layer.depth + tile.depth, blend});
@@ -133,7 +138,7 @@ public:
         }
         std::fill(pixels.begin(), pixels.end(), 0);
         for (const auto& tile : drawOrder) if (visible[tile.overlay]) {
-            for (int y = 0; y < 64; ++y) for (int x = 0; x < 64; ++x) {
+            for (int y = 0; y < tileSize; ++y) for (int x = 0; x < tileSize; ++x) {
                 uint32_t pixel = atlas[tile.source + y * atlasWidth + x];
                 if (pixel >> 24) {
                     auto& dest = pixels[(tile.y+y)*width + tile.x+x];

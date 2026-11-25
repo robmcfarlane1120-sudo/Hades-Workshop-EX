@@ -6,7 +6,7 @@
 
 - **Automatic project backups.** Successful Save Mod operations create timestamped copies under Backups/Project Saves/<project name> beside HWEX. Retains the latest 10 snapshots per project name, numbered 1.0, 1.1 and onward. Backup errors are reported separately from the project save.
 - **Vivi mascot.** A transparent, click-through Vivi follows the active editor viewport (excluding Enemies). On Fields, he stays inside the preview's bottom border without adding scroll space.
-- **Animated Moguri previews.** Supported 64-pixel Moguri backgrounds play tile animation. Pictures scale down to fit the window while preserving their aspect ratio, without image scrolling.
+- **Animated field previews.** Tile animation works with vanilla 32-pixel backgrounds and supported 64-pixel Moguri backgrounds. HWEX uses vanilla assets automatically when Moguri is absent. Pictures scale down to fit the window while preserving their aspect ratio, without image scrolling.
 - **Independent controls.** Play and Play SPS sit below Preview. Tile and SPS playback stay enabled while browsing fields during the session. Tile animation runs 30% slower than its nominal rate.
 - **Background SPS and weather.** Supported background effects, multiple preset instances, ground splashes and rain use MDC reference tables. Character-attached effects are excluded.
 - **Fallback and shutdown.** Unsupported or failed tile loads use the regular HWS preview. Accepted close actions stop preview timers and ignore queued preview work; canceled close prompts preserve playback.
