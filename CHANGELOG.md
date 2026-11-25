@@ -2,13 +2,18 @@
 
 ## Unreleased
 
-- Added automatic timestamped HWS project-save backups under Backups/Project Saves/<project name>. Versions run from 1.0 upward without major-version rollover; each name retains its latest 10 successful snapshots. Backup failures warn separately, and cleanup only follows a successful new backup.
+## Latest additions — 25 November 2026
 
-- Replaced the Vivi child panel with a single click-through native alpha overlay anchored outside scrolling content. Fixed opaque backing boxes, stale control images, scroll drift, and cramped startup overlap; only the active right-side editor receives the mascot.
+- **Automatic project backups.** Successful Save Mod operations create timestamped copies under Backups/Project Saves/<project name> beside HWEX. Retains the latest 10 snapshots per project name, numbered 1.0, 1.1 and onward. Backup errors are reported separately from the project save.
+- **Vivi mascot.** A transparent, click-through Vivi follows the active editor viewport (excluding Enemies). On Fields, he stays inside the preview's bottom border without adding scroll space.
+- **Animated Moguri previews.** Supported 64-pixel Moguri backgrounds play tile animation. Pictures scale down to fit the window while preserving their aspect ratio, without image scrolling.
+- **Independent controls.** Play and Play SPS sit below Preview. Tile and SPS playback stay enabled while browsing fields during the session. Tile animation runs 30% slower than its nominal rate.
+- **Background SPS and weather.** Supported background effects, multiple preset instances, ground splashes and rain use MDC reference tables. Character-attached effects are excluded.
+- **Fallback and shutdown.** Unsupported or failed tile loads use the regular HWS preview. Accepted close actions stop preview timers and ignore queued preview work; canceled close prompts preserve playback.
 
-- Anchored Vivi to the visible bottom-right of editor viewports instead of scrolling content; removed the extra mascot from the left Enemies panel. The decoration does not add scroll space or accept mouse/keyboard input.
+This is an editor preview, not field-script execution: effects from different story scenarios may appear together, and weather/placement can be approximate. Custom BGX and separate Moguri layout overrides retain the regular preview. Moguri assets are loaded from your game installation and are not included here.
 
-- Added a full-colour transparent Vivi mascot holding a flame to the bottom-right of editor scroll pages. The mascot scrolls with page content and stays clear of controls and nested preview canvases.
+- Fixed resource cleanup ordering when closing all project pages. Added the Windows compatibility manifest and SPS/weather tables to runtime packaging.
 
 - Added native workspace buttons for field scripts and dialogue, automatic pending-change refresh, and variable-allocation metadata refreshed on parse and save.
 - Hardened script loading, batch entry imports, and workspace parse sizing; custom battle exports avoid duplicate background registration.

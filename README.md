@@ -3,6 +3,19 @@
 I started making these changes to Hades Workshop while developing The Lost Chapters. I wanted the editor to remember my folders, let me jump through lists with two-key prefix search, and make it easier to find things in field scripts and most importantly have a dark easier to look at UI. Those small quality-of-life changes grew into Hades Workshop EX, and I’m sharing it in case it makes other FFIX modders’ work a little easier.
 
 - Unofficial Windows x64 edition of [Hades Workshop 0.53 by Tirlititi](https://github.com/Tirlititi/Hades-Workshop/tree/f428246), with additions by Cheddarbung. Distributed under [GNU GPL v3](LICENSE).
+## Latest additions — 25 November 2026
+
+- **Automatic project backups.** Successful Save Mod operations create timestamped copies under Backups/Project Saves/<project name> beside HWEX. Retains the latest 10 snapshots per project name, numbered 1.0, 1.1 and onward. Backup errors are reported separately from the project save.
+- **Vivi mascot.** A transparent, click-through Vivi follows the active editor viewport (excluding Enemies). On Fields, he stays inside the preview's bottom border without adding scroll space.
+- **Animated Moguri previews.** Supported 64-pixel Moguri backgrounds play tile animation. Pictures scale down to fit the window while preserving their aspect ratio, without image scrolling.
+- **Independent controls.** Play and Play SPS sit below Preview. Tile and SPS playback stay enabled while browsing fields during the session. Tile animation runs 30% slower than its nominal rate.
+- **Background SPS and weather.** Supported background effects, multiple preset instances, ground splashes and rain use MDC reference tables. Character-attached effects are excluded.
+- **Fallback and shutdown.** Unsupported or failed tile loads use the regular HWS preview. Accepted close actions stop preview timers and ignore queued preview work; canceled close prompts preserve playback.
+
+This is an editor preview, not field-script execution: effects from different story scenarios may appear together, and weather/placement can be approximate. Custom BGX and separate Moguri layout overrides retain the regular preview. Moguri assets are loaded from your game installation and are not included here.
+
+See the [full feature inventory](docs/FEATURES-2026-11-15.md) and [changelog](CHANGELOG.md).
+
 ## What’s new since 0.53
 
 - **Interface.** Dark interface, updated splash and icon, larger controls and text, and wider lists. The dialogue list shows roughly 20 rows at once.
