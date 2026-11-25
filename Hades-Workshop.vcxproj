@@ -325,7 +325,7 @@
     <ClInclude Include="Source\DllCilMacro.h" />
     <ClInclude Include="Source\DllEditor.h" />
     <ClInclude Include="Source\Enemies.h" />
-    <ClInclude Include="Source\fbxsdk.h" /><ClInclude Include="Source\WxTranslationCompat.h" /><ClInclude Include="Source\ListPrefixSearch.h" />
+    <ClInclude Include="Source\WxTranslationCompat.h" /><ClInclude Include="Source\ListPrefixSearch.h" />
     <ClInclude Include="Source\Fields.h" />
     <ClInclude Include="Source\File_Batching.h" />
     <ClInclude Include="Source\File_IOCommon.h" />
