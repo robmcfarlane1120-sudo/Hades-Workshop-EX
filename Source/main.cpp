@@ -6,6 +6,7 @@
  *********************************************************************/
 
 #include "main.h"
+#include "ProjectSaveBackup.h"
 
 #include <fstream>
 #include <memory>
@@ -161,7 +162,7 @@ void MainFrame::DeleteFullDir(string dirname) {
 static wxString SessionSettingsPath();
 
 MainFrame::MainFrame(wxWindow *parent) :
-	MainFrameBase(parent, wxID_ANY, "HWS Chedderbung Build"),
+	MainFrameBase(parent, wxID_ANY, "Hades Workshop EX"),
 	CDPanelAmount(0) {
 	SetIcon(wxICON(hadesworkshop_icon));
 	wxClientDC dc(m_background);
@@ -223,6 +224,8 @@ void MainFrame::OnCloseFrame(wxCloseEvent& event) {
 			}
 		}
 	}
+    for (unsigned int i = 0; i < CDPanelAmount; ++i)
+        CDPanel[i]->StopPreviewForClose();
 	Destroy();
 }
 
@@ -238,6 +241,8 @@ void MainFrame::OnExitClick(wxCommandEvent& event) {
 		if (popup.ShowModal() != wxID_YES)
 			return;
 	}
+    for (unsigned int i = 0; i < CDPanelAmount; ++i)
+        CDPanel[i]->StopPreviewForClose();
 	Destroy();
 }
 
@@ -462,6 +467,7 @@ void MainFrame::OnCloseClick(wxCommandEvent& event) {
 		if (popup.ShowModal() != wxID_YES)
 			return;
 	}
+    CDPanel[currentpanel]->StopPreviewForClose();
 	if (CDPanel[currentpanel]->gametype != GAME_TYPE_PSX && CDPanel[currentpanel]->config.meta_dll.dll_file.is_open())
 		CDPanel[currentpanel]->config.meta_dll.dll_file.close();
 	if (CDPanelAmount > 1) {
@@ -486,9 +492,10 @@ void MainFrame::OnCloseClick(wxCommandEvent& event) {
 
 void MainFrame::OnCloseAllClick(wxCommandEvent& event) {
 	for (unsigned int i = 0; i < CDPanelAmount; i++) {
-		m_cdbook->DeletePage(0);
+        CDPanel[i]->StopPreviewForClose();
 		if (CDPanel[i]->gametype != GAME_TYPE_PSX && CDPanel[i]->config.meta_dll.dll_file.is_open())
 			CDPanel[i]->config.meta_dll.dll_file.close();
+        m_cdbook->DeletePage(0);
 	}
 	CDPanelAmount = 0;
 	UpdateMenuAvailability(wxNOT_FOUND);
@@ -522,6 +529,12 @@ void MainFrame::OnSaveHWSClick(wxCommandEvent& event) {
 		if (path.empty() || WriteHWS(path.ToStdString(), section, localsec, CDPanel[currentpanel]->saveset, CDPanel[currentpanel]->backupset)) {
 			wxLogError(HADES_STRING_OPEN_ERROR_CREATE, path);
 		} else {
+            try {
+                const std::filesystem::path backupRoot = std::filesystem::path(wxStandardPaths::Get().GetExecutablePath().ToStdWstring()).parent_path() / L"Backups" / L"Project Saves";
+                HwsProjectBackup::Create(std::filesystem::path(path.ToStdWstring()), backupRoot);
+            } catch (const std::exception& error) {
+                wxMessageBox("Your project was saved, but automatic backup needs attention:\n\n" + wxString::FromUTF8(error.what()), "Project backup", wxOK | wxICON_WARNING, this);
+            }
 			CDPanel[currentpanel]->projectFilename = path;
 			RememberProjectFolder(path);
 			ToolModManager::SyncProjectWorkspace(*CDPanel[currentpanel]);
@@ -1043,7 +1056,7 @@ MainFrame* GetTopWindow() {
 void MainFrame::UpdateMenuAvailability(int panel) {
 	if (panel == wxNOT_FOUND)
 		panel = m_cdbook->GetSelection();
-	wxString title = "HWS Chedderbung Build";
+	wxString title = "Hades Workshop EX";
 	if (panel >= 0 && CDPanel[panel]) {
 		if (!CDPanel[panel]->projectFilename.empty())
 			title += " - " + wxFileName(CDPanel[panel]->projectFilename).GetFullName();

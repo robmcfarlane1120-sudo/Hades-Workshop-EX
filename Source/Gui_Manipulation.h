@@ -7,6 +7,10 @@
 #include "Gui_Preferences.h"
 #include "gui.h"
 #include <wx/timer.h>
+#include <wx/stopwatch.h>
+#include <memory>
+class FieldAnimationPreview;
+class FieldSpsPreview;
 
 class CDDataStruct : public CDPanel {
 public:
@@ -50,6 +54,8 @@ public:
 	unsigned int* cilsorted;
 
 	CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg);
+    ~CDDataStruct() override;
+    void StopPreviewForClose();
 	void MarkDataSpellModified();
 	void MarkDataSupportModified();
 	void MarkDataCommandModified();
@@ -196,6 +202,22 @@ private:
 	wxBitmap chartexpreview;
 	wxBitmap worldchartexpreview;
 	wxBitmap fieldtexpreview;
+    wxBitmap fieldRegularPreview;
+    std::shared_ptr<FieldAnimationPreview> fieldAnimation;
+    std::shared_ptr<FieldSpsPreview> fieldSps;
+    wxBitmap fieldTileFrame;
+    bool fieldTilesPlaying = false, fieldSpsPlaying = false, fieldPreviewClosing = false;
+    double fieldTileBudget = 0, fieldSpsTime = 0;
+    wxButton* fieldSpsButton = nullptr;
+    void UpdateFieldPreviewTimer();
+    void RefreshFieldPreview();
+    wxTimer fieldAnimationTimer;
+    wxStopWatch fieldAnimationClock;
+    long fieldAnimationTicks = 0;
+    wxButton* fieldAnimationButton = nullptr;
+    void LoadFieldAnimationPreview(unsigned int field, int camera);
+    void UseRegularFieldPreview(const wxString& reason);
+    void OnFieldAnimationTick(wxTimerEvent& event);
 	wxBitmap scenetexpreview;
 	wxBitmap scenetexlinkpreview;
 	wxMenu* sharedmenu;

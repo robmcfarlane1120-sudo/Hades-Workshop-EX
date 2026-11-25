@@ -90,6 +90,10 @@ try {
         }
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'share\ScriptAPI.txt') -Destination $stage
+    # Read-only reference tables for detached background SPS/weather previews.
+    foreach ($referenceName in @('FieldViewerSpsPresets.tsv','FieldViewerSpsGround.tsv','FieldViewerWeather.tsv')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('share\' + $referenceName)) -Destination $stage
+    }
     if ($StageOnly) { Write-Host "Build verified and staged at $stage"; return }
     New-Item -ItemType Directory -Path $destination -Force | Out-Null
     $installLock = [IO.File]::Open((Join-Path $destination '.publish.lock'), 'OpenOrCreate', 'ReadWrite', 'None')

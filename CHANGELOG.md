@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added automatic timestamped HWS project-save backups under Backups/Project Saves/<project name>. Versions run from 1.0 upward without major-version rollover; each name retains its latest 10 successful snapshots. Backup failures warn separately, and cleanup only follows a successful new backup.
+
+- Replaced the Vivi child panel with a single click-through native alpha overlay anchored outside scrolling content. Fixed opaque backing boxes, stale control images, scroll drift, and cramped startup overlap; only the active right-side editor receives the mascot.
+
+- Anchored Vivi to the visible bottom-right of editor viewports instead of scrolling content; removed the extra mascot from the left Enemies panel. The decoration does not add scroll space or accept mouse/keyboard input.
+
+- Added a full-colour transparent Vivi mascot holding a flame to the bottom-right of editor scroll pages. The mascot scrolls with page content and stays clear of controls and nested preview canvases.
+
 - Added native workspace buttons for field scripts and dialogue, automatic pending-change refresh, and variable-allocation metadata refreshed on parse and save.
 - Hardened script loading, batch entry imports, and workspace parse sizing; custom battle exports avoid duplicate background registration.
 - Replaced the old custom-field export controls with selective field creation and right-click Export Assets, including MapConfig lighting. Normal exports preserve field visual assets.

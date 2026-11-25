@@ -36,3 +36,5 @@ animcontrolloopplay_image BITMAP "Resource\\PlayControllerButtonLoopPlay.bmp"
 animcontrollooppause_image BITMAP "Resource\\PlayControllerButtonLoopPause.bmp"
 animcontrolnoloopplay_image BITMAP "Resource\\PlayControllerButtonNoLoopPlay.bmp"
 animcontrolnolooppause_image BITMAP "Resource\\PlayControllerButtonNoLoopPause.bmp"
+
+hwex_vivi_mascot RCDATA "Resource\\ViviMascot.png"

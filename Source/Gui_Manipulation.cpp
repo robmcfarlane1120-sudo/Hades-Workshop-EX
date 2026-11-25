@@ -8,6 +8,10 @@
 // Modified by Cheddarbung - November 2026. Based on Hades Workshop 0.53 by Tirlititi. Distributed under GNU GPL v3.
 
 #include "Gui_Manipulation.h"
+#include "ViviMascot.h"
+#include "FieldAnimationPreview.h"
+#include "FieldSpsPreview.h"
+#include <wx/graphics.h>
 #include "Tool_ModManager.h"
 #include "File_Batching.h"
 #include <wx/filename.h>
@@ -7184,8 +7188,9 @@ void CDDataStruct::OnTextCharmapPaint(wxPaintEvent &event) {
 		delete[] imgdata; \
 	} \
 	fieldtexpreview = bmp; \
-	m_fieldtexturepreview->SetVirtualSize(bmp.IsOk() ? bmp.GetWidth() : 0, bmp.IsOk() ? bmp.GetHeight() : 0); \
-	m_fieldtexturepreview->Refresh();
+	m_fieldtexturepreview->SetVirtualSize(0, 0); \
+	m_fieldtexturepreview->Refresh(); \
+    LoadFieldAnimationPreview((FIELDID), (BGID));
 
 void CDDataStruct::DisplayField(int fieldid) {
 	unsigned int* sortid = (unsigned int*)m_fieldlist->GetClientData(fieldid);
@@ -8153,15 +8158,139 @@ walkbmp.SaveFile(_(L"aaaa.bmp"),wxBITMAP_TYPE_BMP);*/
 	}
 }
 
-void CDDataStruct::OnFieldTexturePaint(wxPaintEvent &event) {
-	wxPaintDC dc(m_fieldtexturepreview);
-	dc.SetBackground(wxBrush(wxColour(25, 25, 25)));
-	dc.Clear();
-	if (fieldtexpreview.IsOk()) {
-		m_fieldtexturepreview->DoPrepareDC(dc);
-		dc.DrawBitmap(fieldtexpreview,0,0);
-	}
+CDDataStruct::~CDDataStruct() {
+    StopPreviewForClose();
 }
+
+void CDDataStruct::StopPreviewForClose() {
+    // wxFrame::Destroy is deferred until idle. Stop producing render/paint events
+    // before requesting destruction, and ignore a timer event already queued.
+    fieldPreviewClosing = true;
+    fieldAnimationTimer.Stop();
+    workspaceRefreshTimer.Stop();
+}
+
+void CDDataStruct::UpdateFieldPreviewTimer() {
+    if (fieldPreviewClosing) return;
+    if (fieldAnimationButton && fieldAnimationButton->GetLabel() != (fieldTilesPlaying ? _("Stop") : _("Play"))) fieldAnimationButton->SetLabel(fieldTilesPlaying ? _("Stop") : _("Play"));
+    if (fieldSpsButton && fieldSpsButton->GetLabel() != (fieldSpsPlaying ? _("Stop SPS") : _("Play SPS"))) fieldSpsButton->SetLabel(fieldSpsPlaying ? _("Stop SPS") : _("Play SPS"));
+    const bool active = (fieldTilesPlaying && fieldAnimation && fieldAnimation->HasAnimation()) ||
+        (fieldSpsPlaying && fieldSps && fieldSps->HasEffects());
+    if (active && !fieldAnimationTimer.IsRunning()) {
+        fieldAnimationClock.Start(); fieldAnimationTicks = 0;
+        fieldAnimationTimer.Start(33);
+    } else if (!active) fieldAnimationTimer.Stop();
+}
+
+void CDDataStruct::RefreshFieldPreview() {
+    if (fieldPreviewClosing) return;
+    fieldtexpreview = fieldTileFrame;
+    if (fieldSpsPlaying && fieldSps && fieldSps->HasEffects() && fieldTileFrame.IsOk()) {
+        try { fieldtexpreview = fieldSps->Render(fieldTileFrame, fieldSpsTime); }
+        catch (const std::exception& error) {
+            fieldSps.reset();
+            m_fieldtexturepreview->SetToolTip(_("Background SPS unavailable: ") + wxString::FromUTF8(error.what()));
+        }
+    }
+    m_fieldtexturepreview->SetVirtualSize(0, 0);
+    m_fieldtexturepreview->Scroll(0, 0);
+    m_fieldtexturepreview->Refresh(false);
+    UpdateFieldPreviewTimer();
+}
+
+void CDDataStruct::UseRegularFieldPreview(const wxString& reason) {
+    fieldAnimation.reset();
+    fieldTileFrame = fieldRegularPreview;
+    m_fieldtexturepreview->SetToolTip(_("Regular HWS preview: ") + reason);
+    RefreshFieldPreview();
+}
+
+void CDDataStruct::LoadFieldAnimationPreview(unsigned int field, int camera) {
+    fieldAnimationTimer.Stop();
+    fieldAnimation.reset(); fieldSps.reset();
+    fieldTileBudget = 0; fieldSpsTime = 0;
+    fieldRegularPreview = fieldtexpreview;
+    fieldTileFrame = fieldtexpreview;
+    m_fieldtexturepreview->UnsetToolTip();
+    if (!fieldAnimationButton) { RefreshFieldPreview(); return; }
+    try {
+        wxLogNull quietImageErrors;
+        if (gametype != GAME_TYPE_STEAM || !fieldset.background_data[field])
+            throw std::runtime_error("No supported Steam background.");
+        auto preview = std::make_shared<FieldAnimationPreview>();
+        preview->Load(*fieldset.background_data[field], config, fieldset.GetIdByIndex(field), camera);
+        wxBitmap image = preview->Render(0);
+        if (!image.IsOk()) throw std::runtime_error("Cannot create animated preview bitmap.");
+        fieldTileFrame = image;
+        fieldAnimation = std::move(preview);
+    } catch (const std::exception& error) {
+        fieldAnimation.reset();
+        m_fieldtexturepreview->SetToolTip(_("Regular HWS preview: ") + wxString::FromUTF8(error.what()));
+    } catch (...) {
+        fieldAnimation.reset();
+        m_fieldtexturepreview->SetToolTip(_("Regular HWS preview: animated background unavailable."));
+    }
+    if (fieldset.background_data[field]) {
+        try {
+            auto effects = std::make_shared<FieldSpsPreview>();
+            effects->Load(*fieldset.background_data[field], config, fieldset.GetIdByIndex(field), camera);
+            fieldSps = std::move(effects);
+        } catch (const std::exception& error) {
+            fieldSps.reset();
+            wxLogDebug("Background SPS preview: %s", wxString::FromUTF8(error.what()));
+        }
+    }
+    RefreshFieldPreview();
+}
+
+void CDDataStruct::OnFieldAnimationTick(wxTimerEvent&) {
+    if (fieldPreviewClosing) return;
+    const long now = fieldAnimationClock.Time();
+    const double elapsed = std::max(0.0, std::min(0.1, (now - fieldAnimationTicks) / 1000.0));
+    fieldAnimationTicks = now;
+    if (!m_fieldtexturepreview->IsShownOnScreen()) return;
+    try {
+        if (fieldTilesPlaying && fieldAnimation && fieldAnimation->HasAnimation()) {
+            fieldTileBudget += elapsed * 21.0;
+            int ticks = (int)fieldTileBudget;
+            if (ticks > 0) {
+                fieldTileBudget -= ticks;
+                wxBitmap image = fieldAnimation->Render(ticks);
+                if (!image.IsOk()) throw std::runtime_error("Cannot render animation frame.");
+                fieldTileFrame = image;
+            }
+        }
+    } catch (const std::exception& error) {
+        UseRegularFieldPreview(wxString::FromUTF8(error.what()));
+    } catch (...) {
+        UseRegularFieldPreview(_("Could not render animation frame."));
+    }
+    if (fieldSpsPlaying) fieldSpsTime += elapsed;
+    RefreshFieldPreview();
+}
+
+void CDDataStruct::OnFieldTexturePaint(wxPaintEvent &event) {
+    wxAutoBufferedPaintDC dc(m_fieldtexturepreview);
+    dc.SetBackground(wxBrush(wxColour(25, 25, 25)));
+    dc.Clear();
+    if (!fieldtexpreview.IsOk()) return;
+    const wxSize viewport = m_fieldtexturepreview->GetClientSize();
+    if (viewport.x <= 0 || viewport.y <= 0) return;
+    const double scale = std::min(1.0, std::min((double)viewport.x / fieldtexpreview.GetWidth(),
+        (double)viewport.y / fieldtexpreview.GetHeight()));
+    const int width = std::max(1, (int)(fieldtexpreview.GetWidth() * scale));
+    const int height = std::max(1, (int)(fieldtexpreview.GetHeight() * scale));
+    const int x = (viewport.x - width) / 2, y = (viewport.y - height) / 2;
+    std::unique_ptr<wxGraphicsContext> graphics(wxGraphicsContext::Create(dc));
+    if (graphics) {
+        graphics->SetInterpolationQuality(wxINTERPOLATION_BEST);
+        graphics->DrawBitmap(fieldtexpreview, x, y, width, height);
+    } else {
+        wxMemoryDC source(fieldtexpreview);
+        dc.StretchBlit(x, y, width, height, &source, 0, 0, fieldtexpreview.GetWidth(), fieldtexpreview.GetHeight());
+    }
+}
+
 
 //=============================//
 //         World Maps          //
@@ -10396,6 +10525,15 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
 	fieldtexpreview(wxNullBitmap) {
 	unsigned int i;
 	gametype = GetGameType();
+    m_fieldtexturepreview->SetBackgroundStyle(wxBG_STYLE_PAINT);
+    m_fieldtexturepreview->SetScrollRate(0, 0);
+    m_fieldtexturepreview->SetVirtualSize(0, 0);
+    m_fieldtexturepreview->SetMinSize(FromDIP(wxSize(200, 160)));
+    m_fieldtexturepreview->Bind(wxEVT_SIZE, [this](wxSizeEvent& event) {
+        m_fieldtexturepreview->SetVirtualSize(0, 0);
+        m_fieldtexturepreview->Refresh(false);
+        event.Skip();
+    });
     // Place actions in the unused right side of the native main-tab strip.
     auto* actionPanel = new wxPanel(m_notebookmain, wxID_ANY);
     auto* actions = new wxBoxSizer(wxHORIZONTAL);
@@ -10410,7 +10548,7 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
     actionPanel->SetSizer(actions);
     auto* emblem = new wxPanel(m_notebookmain, wxID_ANY);
     emblem->SetBackgroundStyle(wxBG_STYLE_PAINT);
-    emblem->SetToolTip(_("Cheddar's Workshop"));
+    emblem->SetToolTip(_("Hades Workshop EX"));
     const wxImage emblemImage = wxBitmap(wxIcon("hadesworkshop_icon", wxBITMAP_TYPE_ICO_RESOURCE, 256, 256)).ConvertToImage();
     emblem->Bind(wxEVT_PAINT, [emblem, emblemImage](wxPaintEvent&) {
         wxAutoBufferedPaintDC dc(emblem);
@@ -10505,7 +10643,33 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
 	if (gametype == GAME_TYPE_STEAM) {
 		wxButton* previewButton = new wxButton(m_fieldcamera->GetParent(), wxID_ANY, _("Change Preview"));
 		m_fieldcamera->GetContainingSizer()->Add(previewButton, 0, wxALL, 2);
-		previewButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+        fieldAnimationTimer.SetOwner(this);
+        Bind(wxEVT_TIMER, &CDDataStruct::OnFieldAnimationTick, this, fieldAnimationTimer.GetId());
+        auto* labelHost = m_staticText210->GetContainingSizer();
+        size_t labelIndex = 0;
+        for (auto* item : labelHost->GetChildren()) {
+            if (item->IsWindow() && item->GetWindow() == m_staticText210) break;
+            ++labelIndex;
+        }
+        labelHost->Detach(m_staticText210);
+        auto* previewActions = new wxBoxSizer(wxVERTICAL);
+        labelHost->Insert(labelIndex, previewActions, 0, wxEXPAND | wxALL, 5);
+        previewActions->Add(m_staticText210, 0, wxBOTTOM, FromDIP(5));
+        fieldAnimationButton = new wxButton(m_fieldscrolledwindow, wxID_ANY, _("Play"));
+        fieldAnimationButton->SetToolTip(_("Play tile animation."));
+        previewActions->Add(fieldAnimationButton, 0, wxBOTTOM, FromDIP(5));
+        fieldSpsButton = new wxButton(m_fieldscrolledwindow, wxID_ANY, _("Play SPS"));
+        fieldSpsButton->SetToolTip(_("Play background SPS and weather."));
+        previewActions->Add(fieldSpsButton, 0, wxBOTTOM, FromDIP(5));
+        fieldAnimationButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            fieldTilesPlaying = !fieldTilesPlaying;
+            UpdateFieldPreviewTimer();
+        });
+        fieldSpsButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            fieldSpsPlaying = !fieldSpsPlaying;
+            RefreshFieldPreview();
+        });
+        previewButton->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
 			int selected = m_fieldlist->GetSelection();
 			if (selected == wxNOT_FOUND)
 				return;
@@ -10635,6 +10799,9 @@ CDDataStruct::CDDataStruct(wxWindow* parent, string fname, ConfigurationSet& cfg
 	itemchoicelist.push_back(m_itemequipposchoice);
 	InitSpell();
 	DisplaySpell(0);
+    const wxImage viviImage = wxBITMAP_PNG(hwex_vivi_mascot).ConvertToImage();
+    if (viviImage.IsOk())
+        AddViviMascots(m_notebookmain, viviImage, m_enemyscrolledwindow, m_fieldscrolledwindow, m_fieldtexturepreview);
 }
 
 
